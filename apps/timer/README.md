@@ -35,7 +35,7 @@ Reinstalling with the same id updates it.
 
 ## Icon
 
-`icon.lua` holds a 16x16 clock in the app's green, drawn as a
-gfx.sprite. The launcher tile itself is drawn by the gadget (app
-colour plus the name's letters); the install API has no icon
-field yet, so the artwork is ready for the day it does.
+The app sets its launcher icon at start-up with app.icon: a
+clock face drawn on a 96x96 canvas, cream ring and hands on the
+app's green. The board keeps it, so the launcher shows the clock
+instead of the app's initials.

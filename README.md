@@ -25,6 +25,10 @@ free for progress rings and other edge displays.
   screen: swipe and the wheel turns your sign to the top, with a
   medallion and the day's message in the middle.
 
+- [Converter](apps/fx/) — USD, BRL, EUR, GBP and RUB with each
+  side switchable, a keypad for the amount, and live rates from
+  free keyless sources, cached for offline use.
+
 ## How an app runs
 
 Each app is a Lua program that runs on the device itself, in the

@@ -29,3 +29,10 @@ closers, combined by a hash of the sign and the date. Every sign
 gets its own message, it stays the same all day, and it changes
 overnight (1,728 combinations). No network, no feed, just the date
 and the sign. A lucky number, colour and mood ride along.
+
+## Icon
+
+The app sets its launcher icon at start-up with app.icon: a
+gold ring and a four-point star drawn on a 96x96 canvas over
+the app's violet. The board keeps it, so the launcher shows
+the star instead of the app's initials.

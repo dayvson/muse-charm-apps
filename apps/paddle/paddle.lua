@@ -99,6 +99,18 @@ local function clear_level()
   reset_ball()
 end
 
+-- launcher icon: bricks, a ball and the paddle
+do
+  local ic = ui.canvas{w = 96, h = 96, color = 0x101014}
+  ic:rect(14, 14, 20, 10, 0xC96F4A, {fill = true, radius = 3})
+  ic:rect(38, 14, 20, 10, 0xD9A441, {fill = true, radius = 3})
+  ic:rect(62, 14, 20, 10, 0x7D9B6A, {fill = true, radius = 3})
+  ic:circle(48, 42, 9, 0xFFD60A, {fill = true})
+  ic:rect(24, 68, 48, 11, 0xD8D5CC, {fill = true, radius = 5})
+  app.icon(ic)
+  ic:delete()
+end
+
 ui.background(BG) -- the playfield colour fills the whole round screen
 
 local c = ui.canvas{

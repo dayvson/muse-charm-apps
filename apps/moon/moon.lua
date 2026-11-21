@@ -100,6 +100,17 @@ local function play()
   anim_t0 = time.now()
 end
 
+-- launcher icon: a crescent moon in a night sky
+do
+  local ic = ui.canvas{w = 96, h = 96, color = 0x14141F}
+  ic:circle(48, 48, 27, 0xE9E2CE, {fill = true})
+  ic:circle(61, 39, 23, 0x14141F, {fill = true})
+  ic:circle(70, 64, 2, 0x9A9BB0, {fill = true})
+  ic:circle(24, 26, 2, 0x9A9BB0, {fill = true})
+  app.icon(ic)
+  ic:delete()
+end
+
 ui.background(BG) -- the sky colour fills the whole round screen
 
 c = ui.canvas{

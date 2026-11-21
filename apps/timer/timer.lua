@@ -31,6 +31,17 @@ local last_color = nil
 local flash_ticks = 0
 local flash_id = nil
 
+-- launcher icon: a clock on the app's green
+do
+  local ic = ui.canvas{w = 96, h = 96, color = 0x34C759}
+  ic:circle(48, 48, 29, 0xF5F5F0, {fill = false, width = 6})
+  ic:line(48, 48, 48, 31, 0xF5F5F0, 6)
+  ic:line(48, 48, 61, 55, 0xF5F5F0, 6)
+  ic:circle(48, 48, 4, 0xF5F5F0, {fill = true})
+  app.icon(ic)
+  ic:delete()
+end
+
 ui.background(BG)
 
 local ring = ui.arc{r = 214, width = 16, max = 1000, value = 1000,

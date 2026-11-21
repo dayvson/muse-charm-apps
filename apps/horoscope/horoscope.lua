@@ -263,6 +263,19 @@ local function change(dir)
   draw()
 end
 
+-- launcher icon: a gold ring and a star on the app's violet
+do
+  local ic = ui.canvas{w = 96, h = 96, color = 0x6C5CA8}
+  ic:circle(48, 48, 31, 0xD9A441, {fill = false, width = 5})
+  ic:triangle(48, 25, 55, 48, 41, 48, 0xE9E2CE)
+  ic:triangle(48, 71, 55, 48, 41, 48, 0xE9E2CE)
+  ic:triangle(25, 48, 48, 55, 48, 41, 0xE9E2CE)
+  ic:triangle(71, 48, 48, 55, 48, 41, 0xE9E2CE)
+  ic:circle(48, 48, 3, 0xD9A441, {fill = true})
+  app.icon(ic)
+  ic:delete()
+end
+
 ui.background(BG) -- the sky colour fills the whole round screen
 
 local down_x = nil

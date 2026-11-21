@@ -9,13 +9,14 @@ free for progress rings and other edge displays.
 
 ## Apps
 
-- [Timer](apps/timer/) — a countdown timer with preset chips, a ring
-  around the rim that is eaten away as time passes, and colours that
-  move from green to yellow to red at the end.
+- [Timer](apps/timer/) — a countdown timer with three preset buttons,
+  a ring around the rim that is eaten away as time passes, and colours
+  that move from green to yellow to red at the end.
 
 ## How an app runs
 
-Each app renders its screens as JPEG frames and a driver pushes them
-to the device with the gadget's `display.draw_file` command. Apps
-print their state changes as JSON lines so the driver can react, for
-example by playing a sound or restoring the avatar when an app ends.
+Each app is a Lua program that runs on the device itself, in the
+Apps by Muse launcher. Muse installs it with `luapp.install`; the
+device compiles, saves and opens it, and it stays in the launcher
+until removed. Apps draw with the gadget's own widgets, keep state
+with its store, and exit on a long-press.

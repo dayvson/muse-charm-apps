@@ -44,13 +44,19 @@ def _font(size):
 
 
 def phase_color(remaining, total):
-    """Green, then yellow, then red as the end approaches."""
+    """Green, then yellow, then red as the end approaches.
+
+    Yellow starts in the last minute, red in the last seconds; on a
+    timer shorter than a minute both thresholds scale down with the
+    total so the three colours still appear in order.
+    """
     if remaining <= 0:
         return RED
-    fraction = remaining / total if total else 0
-    if remaining <= 10 or fraction <= 0.10:
+    yellow_at = min(60.0, total * 0.35)
+    red_at = max(3.0, min(15.0, total * 0.15))
+    if remaining <= red_at:
         return RED
-    if remaining <= 60 or fraction <= 0.35:
+    if remaining <= yellow_at:
         return YELLOW
     return GREEN
 

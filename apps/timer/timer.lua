@@ -161,12 +161,12 @@ local function adjust(dir)
 end
 
 ui.button{
-  text = "-", x = -152, y = -12, w = 64, h = 64, size = 28,
+  text = "-", x = -116, y = -12, w = 64, h = 64, size = 28,
   color = BTN, text_color = PALE, radius = 32,
   on_tap = function() adjust(-1) end,
 }
 ui.button{
-  text = "+", x = 152, y = -12, w = 64, h = 64, size = 28,
+  text = "+", x = 116, y = -12, w = 64, h = 64, size = 28,
   color = BTN, text_color = PALE, radius = 32,
   on_tap = function() adjust(1) end,
 }

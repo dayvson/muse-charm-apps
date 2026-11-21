@@ -21,6 +21,10 @@ free for progress rings and other edge displays.
   canvas: the phase computed from the date, with the phase name,
   percent lit, moon age and the next full or new moon.
 
+- [Horoscope](apps/horoscope/) — the 12 signs on one screen; tap
+  yours for the day's message, a lucky number, colour and mood,
+  picked from the sign and the date and remembered for next time.
+
 ## How an app runs
 
 Each app is a Lua program that runs on the device itself, in the

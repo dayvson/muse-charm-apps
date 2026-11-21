@@ -6,16 +6,30 @@ Installed on the gadget with id `f1`.
 
 ## The two screens
 
-- Next race: the Grand Prix name, a drawn outline of the
-  circuit with a red dot at the start, the circuit name and
-  city, and the start time converted to the gadget's local time
-  with a countdown under it.
-- Championship: the top 3 drivers in the title race, each with
-  their team, points and wins, and the season and round the
-  standings are from.
+Both screens carry a checkered band across the top.
+
+- Next race: the Grand Prix name over a big drawn outline of
+  the circuit, drawn as a road with a pale centre line. A red
+  dot laps the circuit like a car, about one lap every four and
+  a half seconds, with a short fading trail behind it and a
+  white dot marking the start. Under it, the start time
+  converted to the gadget's local time and a countdown.
+- Championship: the top 3 drivers in the title race. Each row
+  has a bar in the team's colour, the driver's flag drawn from
+  their nationality, then their name, team, points and wins,
+  with the season and round the standings are from.
 
 Swipe either way or tap to switch screens; the two dots at the
 bottom show where you are.
+
+## Flags
+
+The flags are drawn, not images: stripe recipes (vertical or
+horizontal thirds, halves) cover most countries, and a few are
+drawn specially: the Union Jack, the Nordic crosses, the Swiss
+cross, Japan's disc, the United States, Australia, Brazil,
+Canada, Thailand and China. A nationality with no recipe yet
+gets a plain grey flag.
 
 ## Data
 

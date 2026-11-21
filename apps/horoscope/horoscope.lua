@@ -263,6 +263,8 @@ local function change(dir)
   draw()
 end
 
+ui.background(BG) -- the sky colour fills the whole round screen
+
 local down_x = nil
 c = ui.canvas{
   w = 400, h = 400, color = BG,

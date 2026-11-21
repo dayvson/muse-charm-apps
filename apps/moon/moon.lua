@@ -100,6 +100,8 @@ local function play()
   anim_t0 = time.now()
 end
 
+ui.background(BG) -- the sky colour fills the whole round screen
+
 c = ui.canvas{
   w = 400, h = 400, color = BG,
   on_touch = function(kind, x, y) if kind == "down" then play() end end,

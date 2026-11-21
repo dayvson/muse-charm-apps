@@ -4,19 +4,23 @@ The 12 signs and a message for the day, running on the gadget in
 the Apps by Muse launcher. Lua source: `horoscope.lua`. Installed
 on the gadget with id `horoscope`.
 
-## How it works
+## The design
 
-- One sign per screen. Swipe left or right to move through the
-  zodiac (tapping the screen edges works too), with a short slide
-  as the new sign comes in. Twelve dots at the bottom show where
-  you are, and chevrons mark the edges.
-- Each screen is a modern two-column layout on a canvas: text on
-  the left, left-aligned (date, sign name, its dates, the day's
-  message, the lucky line), and on the right a round medallion, a
-  gold-ringed disc holding the sign's glyph, drawn from strokes
-  (lines, arcs, circles) in a consistent hand.
-- The sign you land on is kept in the app store and opens first
-  next time; with no pick yet, it opens on today's sign.
+Built as a circle for the round screen; nothing lives in the
+corners, where the round bezel would clip it.
+
+- A zodiac wheel rings the edge: a thin track with a dot per sign.
+  Swipe (or tap the screen edges) and the wheel turns until the
+  new sign reaches the top, marked by a larger gold dot.
+- In the middle, a round medallion with a soft halo holds the
+  sign's glyph, drawn from strokes (lines, arcs, circles) in a
+  consistent hand. Below it, all inside the safe disc: the sign
+  name, its dates with today's date, the day's message, and the
+  lucky line, which is placed from the message's line count so it
+  is always in view.
+- A faint star band sits outside the wheel. The sign you land on
+  is kept in the app store and opens first next time; with no pick
+  yet, it opens on today's sign.
 
 ## The daily message
 

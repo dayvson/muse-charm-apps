@@ -1,9 +1,10 @@
--- Horoscope: one sign per screen. Swipe left or right (or tap the
--- screen edges) to move through the zodiac; each screen shows the
--- sign's medallion on the right and its message for the day,
--- left-aligned, on the left. The message is picked from the sign
--- and the date, so it is the same all day and changes overnight.
--- The sign you are on is remembered for next time.
+-- Horoscope: built as a circle for the round screen. A zodiac
+-- wheel rings the edge with a dot per sign; swipe and the wheel
+-- turns until your sign reaches the top. In the middle, a round
+-- medallion holds the sign's glyph, with its name, dates, the
+-- day's message and the lucky line stacked inside the safe disc.
+-- The message is picked from the sign and the date, so it is the
+-- same all day and changes overnight.
 
 local BG = 0x0B0B12
 local PALE = 0xD8D5CC
@@ -12,6 +13,7 @@ local GOLD = 0xD9A441
 local DISC = 0x2A2140
 local GLYPH = 0xE9E2CE
 local DIM = 0x3A3A48
+local FAINT = 0x55566E
 
 local SIGNS = {
   {"Aries", "Mar 21 - Apr 19"}, {"Taurus", "Apr 20 - May 20"},
@@ -21,7 +23,6 @@ local SIGNS = {
   {"Sagittarius", "Nov 22 - Dec 21"}, {"Capricorn", "Dec 22 - Jan 19"},
   {"Aquarius", "Jan 20 - Feb 18"}, {"Pisces", "Feb 19 - Mar 20"},
 }
--- first day of each sign, same order: {month, day}
 local STARTS = {{3,21},{4,20},{5,21},{6,21},{7,23},{8,23},
                 {9,23},{10,23},{11,22},{12,22},{1,20},{2,19}}
 
@@ -107,8 +108,6 @@ local function wrap(text, width)
 end
 
 local function sign_for_today()
-  -- scan the signs in calendar order (Capricorn first, it wraps the
-  -- year) and keep the last one whose start date has passed
   local d = time.date()
   local order = {10, 11, 12, 1, 2, 3, 4, 5, 6, 7, 8, 9}
   local cur = 10
@@ -122,25 +121,28 @@ local function sign_for_today()
 end
 
 local idx = store.get("sign") or sign_for_today()
-local slide = 0
+local rot = -(idx - 1) * 30 -- wheel rotation, degrees; sign idx on top
+local rot_target = rot
 local last_day = math.floor(time.now() / 86400)
 
-local c -- forward declaration for the glyph helpers
+local c
+local GS, GW = 0.72, 4 -- glyph scale and stroke width
 
 local function L(mx, my, x1, y1, x2, y2)
-  c:line(mx + x1, my + y1, mx + x2, my + y2, GLYPH, 5)
+  c:line(mx + x1 * GS, my + y1 * GS, mx + x2 * GS, my + y2 * GS, GLYPH, GW)
 end
 local function A(mx, my, cx, cy, r, start, sweep)
-  c:arc(mx + cx, my + cy, r, start, sweep, GLYPH, 5)
+  c:arc(mx + cx * GS, my + cy * GS, r * GS, start, sweep, GLYPH, GW)
 end
 local function CIR(mx, my, cx, cy, r, fill)
-  c:circle(mx + cx, my + cy, r, GLYPH, {fill = fill, width = 5})
+  c:circle(mx + cx * GS, my + cy * GS, r * GS, GLYPH,
+           {fill = fill, width = GW})
 end
 local function TRI(mx, my, x1, y1, x2, y2, x3, y3)
-  c:triangle(mx + x1, my + y1, mx + x2, my + y2, mx + x3, my + y3, GLYPH)
+  c:triangle(mx + x1 * GS, my + y1 * GS, mx + x2 * GS, my + y2 * GS,
+             mx + x3 * GS, my + y3 * GS, GLYPH)
 end
 
--- one stroke drawing per sign, in a 64x64 box around (mx, my)
 local GLYPHS = {
   function(mx, my) -- Aries
     A(mx, my, -12, -10, 10, 270, 180) A(mx, my, 12, -10, 10, 270, 180)
@@ -199,45 +201,64 @@ local function draw()
   local d = time.date()
   local msg = pick(OPENERS, idx, 1) .. " " .. pick(MIDDLES, idx, 2) ..
               " " .. pick(CLOSERS, idx, 3)
-  local lines = wrap(msg, 33)
-  local sx = slide
+  local lines = wrap(msg, 30)
+  if #lines > 6 then lines = wrap(msg, 34) end
 
   c:clear(BG)
-  c:text(WDAYS[d.wday] .. ", " .. MONTHS[d.month] .. " " .. d.day,
-         44 + sx, 44, LAV, 14, "left")
-  c:text(name, 44 + sx, 68, PALE, 28, "left")
-  c:text(dates, 44 + sx, 108, GOLD, 14, "left")
 
-  -- the medallion: a round badge for the round screen
-  local mx, my = 296 + sx, 96
-  c:circle(mx, my, 52, DISC, {fill = true})
-  c:circle(mx, my, 52, GOLD, {fill = false, width = 3})
-  GLYPHS[idx](mx, my)
-
-  c:line(44, 166, 356, 166, DIM, 2)
-  for i, line in ipairs(lines) do
-    c:text(line, 44 + sx, 192 + (i - 1) * 25, PALE, 16, "left")
+  -- stars in the band outside the wheel, seeded by the day
+  local s = math.floor(time.now() / 86400) * 1103515245 + 12345
+  local function rnd()
+    s = (s * 1103515245 + 12345) % 2147483648
+    return s / 2147483648
   end
-  c:text("Lucky " .. lucky_number(idx) .. " - " .. pick(COLORS, idx, 4) ..
-         " - " .. pick(MOODS, idx, 5), 44 + sx, 366, LAV, 14, "left")
-
-  -- chevrons and page dots
-  c:line(22, 196, 12, 210, DIM, 3) c:line(12, 210, 22, 224, DIM, 3)
-  c:line(378, 196, 388, 210, DIM, 3) c:line(388, 210, 378, 224, DIM, 3)
-  for i = 1, 12 do
-    local x = 200 + (i - 6.5) * 15
-    if i == idx then
-      c:circle(x, 390, 4, GOLD, {fill = true})
-    else
-      c:circle(x, 390, 2, DIM, {fill = true})
+  for i = 1, 40 do
+    local x, y = rnd() * 400, rnd() * 400
+    local dx, dy = x - 200, y - 200
+    local dd = dx * dx + dy * dy
+    if dd > 190 * 190 and dd < 226 * 226 then
+      c:pixel(x, y, FAINT)
     end
   end
+
+  -- the zodiac wheel: a track ring and a dot per sign
+  c:arc(200, 200, 178, 0, 360, DIM, 2)
+  for i = 1, 12 do
+    local a = math.rad((i - 1) * 30 + rot)
+    local x = 200 + 178 * math.sin(a)
+    local y = 200 - 178 * math.cos(a)
+    if i == idx then
+      c:circle(x, y, 8, GOLD, {fill = true})
+      c:circle(x, y, 12, GOLD, {fill = false, width = 2})
+    else
+      c:circle(x, y, 3, FAINT, {fill = true})
+    end
+  end
+
+  -- the medallion in the middle
+  c:circle(200, 112, 54, DISC, {fill = true, opacity = 110})
+  c:circle(200, 112, 44, DISC, {fill = true})
+  c:circle(200, 112, 44, GOLD, {fill = false, width = 3})
+  GLYPHS[idx](200, 112)
+
+  c:text(name, 200, 168, PALE, 28, "center")
+  c:text(dates .. "  -  " .. WDAYS[d.wday] .. ", " .. MONTHS[d.month] ..
+         " " .. d.day, 200, 206, GOLD, 14, "center")
+  for i, line in ipairs(lines) do
+    c:text(line, 200, 238 + (i - 1) * 23, PALE, 16, "center")
+  end
+  c:text("Lucky " .. lucky_number(idx) .. "  -  " .. pick(COLORS, idx, 4) ..
+         "  -  " .. pick(MOODS, idx, 5), 200, 238 + #lines * 23 + 8,
+         LAV, 14, "center")
 end
 
 local function change(dir)
   idx = (idx - 1 + dir) % 12 + 1
   store.set("sign", idx)
-  slide = dir * 38
+  local target = -(idx - 1) * 30
+  while target - rot > 180 do target = target - 360 end
+  while target - rot < -180 do target = target + 360 end
+  rot_target = target
   sound.effect("select", {volume = 30})
   draw()
 end
@@ -265,9 +286,9 @@ c = ui.canvas{
 }
 
 ui.every(33, function()
-  if slide ~= 0 then
-    slide = slide * 0.6
-    if math.abs(slide) < 0.6 then slide = 0 end
+  if rot ~= rot_target then
+    rot = rot + (rot_target - rot) * 0.2
+    if math.abs(rot_target - rot) < 0.2 then rot = rot_target end
     draw()
   end
 end)

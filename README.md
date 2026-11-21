@@ -21,9 +21,9 @@ free for progress rings and other edge displays.
   canvas: the phase computed from the date, with the phase name,
   percent lit, moon age and the next full or new moon.
 
-- [Horoscope](apps/horoscope/) — swipe through the 12 signs, one
-  per screen: left-aligned text and the day's message on the left,
-  a round medallion with the sign's glyph on the right.
+- [Horoscope](apps/horoscope/) — a zodiac wheel for the round
+  screen: swipe and the wheel turns your sign to the top, with a
+  medallion and the day's message in the middle.
 
 ## How an app runs
 

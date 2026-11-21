@@ -1,7 +1,8 @@
 -- Timer: pick 2, 3 or 5 minutes, tap to start, tap again to pause.
 -- A ring around the rim is eaten away as time runs: green, yellow in
 -- the last minute (or the last 35% of a short timer), red for the
--- last stretch. At zero the whole screen blinks red with TIME UP.
+-- last stretch. At zero the whole screen blinks red with TIME UP
+-- and a short two-tone alarm plays, twice.
 -- Runs on the gadget itself (Apps by Muse launcher, Lua).
 
 local GREEN = 0x34C759
@@ -81,6 +82,10 @@ local function stop_flash()
   ui.background(BG)
 end
 
+local function alarm()
+  sound.play("A5:8 F5:8 A5:8 F5:8 A5:4", {bpm = 170, volume = 55})
+end
+
 local function finish()
   running = false
   done = true
@@ -89,6 +94,7 @@ local function finish()
   ring:set{value = 1000, color = RED}
   time_label:set{text = "TIME UP", color = RED}
   state_label:set{text = "TAP TO RESET"}
+  alarm()
   flash_ticks = 0
   flash_id = ui.every(450, function()
     flash_ticks = flash_ticks + 1
@@ -99,12 +105,14 @@ local function finish()
       ui.background(BG)
       time_label:set{color = RED}
     end
+    if flash_ticks == 7 then alarm() end
     if flash_ticks >= 13 then stop_flash() end
   end)
 end
 
 local function reset()
   stop_flash()
+  sound.stop()
   done = false
   running = false
   total = PRESETS[preset]

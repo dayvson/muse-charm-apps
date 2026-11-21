@@ -16,14 +16,16 @@ id `timer`.
 - The ring is green, turns yellow inside the last minute (or the last
   35% of a short timer), and red for the last stretch.
 - At zero the whole screen blinks red with TIME UP for about six
-  seconds, then settles. Tap to reset.
+  seconds and a short two-tone alarm plays, twice. Then it settles;
+  tap to reset.
 - Long-press exits back to the launcher, like every app.
 
 ## Sound
 
-The Lua API the gadget offers has no sound call in it, so the alarm
-is the blinking red screen. If a sound function joins the API, it is
-a one-line add in the finish path.
+The alarm uses `sound.play` from the gadget's sound API: an original
+two-tone melody (A5/F5 eighths at 170 bpm, volume 55), played at
+zero and once more halfway through the blink. Tapping to reset
+stops it.
 
 ## Installing
 

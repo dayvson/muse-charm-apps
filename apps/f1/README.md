@@ -4,13 +4,11 @@ Formula 1 on the gadget, in the Apps by Muse launcher. Lua
 source: `f1.lua`. Installed on the gadget with id `f1` and
 shown in the launcher as F1.
 
-Everything sits inside a checkered ring: two rows of
-alternating squares set on a circle at the very edge of the
-round screen. The app draws on one full-screen 466x466
-canvas (created first, before anything else allocates), and
-all the content is drawn in a 352 box centred on it. Swipe
-or tap to move between the four screens; the four dots at
-the bottom show where you are.
+The app draws on one full-screen 466x466 canvas (created
+first, before anything else allocates), and all the content
+is drawn in a 352 box centred on it. Swipe or tap to move
+between the four screens; the four dots at the bottom show
+where you are.
 
 ## The four screens
 
@@ -18,12 +16,15 @@ the bottom show where you are.
   the circuit, drawn as a road with a pale centre line. A red
   dot laps the circuit like a car, about one lap every four
   and a half seconds, with a short fading trail behind it and
-  a white dot marking the start. Just inside the checkered
-  ring, a ring of 48 small segments lights up from the top
+  a white dot marking the start. Near the edge of the screen,
+  a ring of 48 small segments lights up from the top
   clockwise for the share of the last seven days still to go
   before the race: gold, then red inside the last day, and
   fully red while the race is on. Under the circuit, the
-  start time in local time and a countdown.
+  start time in local time and a countdown. Tapping the
+  circuit swaps this screen to the race after the next one
+  (its own outline, date and countdown under a THE ONE AFTER
+  heading); tap it again to swap back.
 - Weekend schedule: every session of the coming weekend in
   local time (practice, qualifying, the sprint when there is
   one, and the race). Sessions already over are dimmed; the
@@ -46,13 +47,14 @@ a sound. It plays once per race.
 
 ## Data
 
-Race, schedule, standings and results come from the Ergast
-mirror at api.jolpi.ca, a free API that needs no key. They
-are fetched in a chain when the app opens (one request at a
-time, as the gadget requires) and cached in the app store,
-so the app opens instantly and still works offline with the
-last saved data. The line under the countdown on the race
-screen says whether the data on screen is live or saved.
+Race, schedule, standings, results and the race after the
+next one come from the Ergast mirror at api.jolpi.ca, a free
+API that needs no key. They are fetched in a chain when the
+app opens (one request at a time, as the gadget requires)
+and cached in the app store, so the app opens instantly and
+still works offline with the last saved data. The line under
+the countdown on the race screen says whether the data on
+screen is live or saved.
 
 The API gives times in UTC; the app converts them with its
 own date math and the offset it derives from the gadget's

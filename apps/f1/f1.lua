@@ -1,14 +1,16 @@
--- Grand Prix: Formula 1 on the gadget, inside a checkered
--- ring. Four screens: the next race (a big circuit outline
--- with a red dot lapping it, the start in local time, and a
--- thin ring inside the checkers that drains over the last
--- seven days before lights out), the weekend schedule, the
--- last race's podium, and the championship top 3 with flags
--- and team colours. If the app is open at lights out, the
--- five start lights run their sequence. Swipe or tap to move
--- between screens. Data comes from the free, keyless Ergast
--- mirror at api.jolpi.ca and is cached in the store, so the
--- app opens instantly and works offline with saved data.
+-- Grand Prix: Formula 1 on the gadget. Four screens: the
+-- next race (a big circuit outline with a red dot lapping
+-- it, the start in local time, and a ring of segments near
+-- the edge of the screen that drains over the last seven
+-- days before lights out), the weekend schedule, the last
+-- race's podium, and the championship top 3 with flags and
+-- team colours. Tapping the circuit on the race screen
+-- swaps it for the race after the next one, and back. If
+-- the app is open at lights out, the five start lights run
+-- their sequence. Swipe or tap to move between screens.
+-- Data comes from the free, keyless Ergast mirror at
+-- api.jolpi.ca and is cached in the store, so the app opens
+-- instantly and works offline with saved data.
 
 local BG = 0x0B0B10
 local PALE = 0xD8D5CC
@@ -70,10 +72,11 @@ local function team_color(team)
 end
 
 -- The drawing surface is one full-screen 466x466 canvas, so
--- the checkered ring can sit at the true edge of the round
--- screen. All the drawing code works in a 352 box centred on
--- it; this proxy shifts every coordinate by 57 to land there.
--- The canvas is created first, before anything else allocates.
+-- the countdown segments can sit near the true edge of the
+-- round screen. All the drawing code works in a 352 box
+-- centred on it; this proxy shifts every coordinate by 57
+-- to land there. The canvas is created first, before
+-- anything else allocates.
 local touch_fn = nil
 local raw = ui.canvas{
   w = 466, h = 466, color = BG,
@@ -98,6 +101,9 @@ function c:arc(x, y, r, a0, sweep, col, w)
   raw:arc(x + 57, y + 57, r, a0, sweep, col, w) end
 
 local race = nil   -- {name, cid, circuit, loc, country, epoch}
+local after = nil  -- the race after the next one, same shape
+local after_mode = false -- race screen showing `after`
+local next_round = nil
 local top = {}     -- up to 3 {code, name, team, pts, wins, nat}
 local sched = {}   -- {{label, epoch}, ...} the race weekend
 local last = nil   -- {name, results = {top 3 like `top`}}
@@ -140,6 +146,11 @@ do
     for label, ep in sc:gmatch("([^;:]+):(%d+)") do
       sched[#sched + 1] = {label = label, epoch = tonumber(ep)}
     end
+  end
+  local an = store.get("aname")
+  if an then
+    after = {name = an, cid = store.get("acid"),
+             epoch = store.get("aepoch")}
   end
   local ln = store.get("lname")
   if ln then
@@ -327,33 +338,14 @@ local function draw_flag(x, y, nat)
   end
 end
 
--- a checkered ring at the very edge of the round screen: two
--- rows of alternating squares set on a circle at radius 218
--- and 202 (in the centred 352 drawing space the proxy shifts
--- onto the full-screen canvas), like the rim ring on the
--- Timer app but checkered
-local function draw_ring()
-  for ring = 0, 1 do
-    local r = 218 - ring * 16
-    local n = math.floor(2 * math.pi * r / 16)
-    for i = 0, n - 1 do
-      local a = (i + ring * 0.5) / n * 2 * math.pi
-      local x = 176 + r * math.cos(a)
-      local y = 176 + r * math.sin(a)
-      local col = ((i + ring) % 2 == 0) and PALE or 0x17171F
-      c:rect(x - 7, y - 7, 15, 15, col)
-    end
-  end
-end
-
 local function build_path(cid)
   local raw = OUTLINES[cid]
   if not raw then path = nil return end
-  local cx, cy, half = 176, 184, 100
+  local cx, cy, hx, hy = 176, 190, 140, 104
   local pts, cum, total = {}, {}, 0
   for i, p in ipairs(raw) do
-    pts[i] = {cx + (p[1] - 50) / 50 * half,
-              cy + (p[2] - 50) / 50 * half}
+    pts[i] = {cx + (p[1] - 50) / 50 * hx,
+              cy + (p[2] - 50) / 50 * hy}
   end
   for i = 1, #pts do
     local a, b = pts[i], pts[i % #pts + 1]
@@ -407,13 +399,13 @@ local function draw_outline(cid)
   c:circle(hx, hy, 5, CAR, {fill = true})
 end
 
--- a segmented ring just inside the checkers: 48 segments,
+-- a segmented ring near the edge of the screen: 48 segments,
 -- lit from the top clockwise for the share of the last seven
 -- days still to go before lights out; gold, then red inside
 -- the last day, and fully red while the race is on
-local function draw_segs()
-  if not race then return end
-  local diff = race.epoch - time.now()
+local function draw_segs(epoch)
+  if not epoch then return end
+  local diff = epoch - time.now()
   local frac, col
   if diff <= 0 then
     frac, col = 1, RED
@@ -426,26 +418,28 @@ local function draw_segs()
   local lit = math.ceil(frac * n)
   for i = 0, n - 1 do
     local a = -math.pi / 2 + (i + 0.5) * 2 * math.pi / n
-    local x = 176 + 140 * math.cos(a)
-    local y = 176 + 140 * math.sin(a)
+    local x = 176 + 205 * math.cos(a)
+    local y = 176 + 205 * math.sin(a)
     c:rect(x - 3, y - 3, 6, 6, (i < lit) and col or 0x1C1C24)
   end
 end
 
 local function draw_race()
-  c:text("NEXT RACE", 176, 42, LAV, 13, "center")
-  if not race then
+  local disp = (after_mode and after) or race
+  c:text(after_mode and "THE ONE AFTER" or "NEXT RACE",
+         176, 42, LAV, 13, "center")
+  if not disp then
     c:text("No race data yet", 176, 150, PALE, 20, "center")
     c:text("check your connection", 176, 182, LAV, 14, "center")
     return
   end
-  local head = race.name:gsub(" Grand Prix$", "")
+  local head = disp.name:gsub(" Grand Prix$", "")
   c:text(head, 176, 58, PALE, 30, "center")
   c:text("GRAND PRIX", 176, 90, GOLD, 15, "center")
-  draw_segs()
-  draw_outline(race.cid)
-  c:text(race_local_parts(race.epoch), 176, 268, PALE, 17, "center")
-  c:text(countdown(race.epoch) .. "  -  " .. state, 176, 292,
+  draw_segs(disp.epoch)
+  draw_outline(disp.cid)
+  c:text(race_local_parts(disp.epoch), 176, 268, PALE, 17, "center")
+  c:text(countdown(disp.epoch) .. "  -  " .. state, 176, 292,
          GOLD, 13, "center")
 end
 
@@ -546,7 +540,6 @@ end
 
 local function draw()
   c:clear(BG)
-  draw_ring()
   if lights > 0 then
     draw_lights()
     return
@@ -580,16 +573,31 @@ end
 
 ui.background(BG)
 
-local down_x = nil
+local down_x, down_y = nil, nil
 touch_fn = function(kind, x, y)
   if kind == "down" then
-    down_x = x
+    down_x, down_y = x, y
   elseif kind == "up" and down_x then
     local dx = x - down_x
     down_x = nil
-    if dx < -40 then screen = screen % 4 + 1
-    elseif dx > 40 then screen = (screen + 2) % 4 + 1
-    elseif math.abs(dx) <= 12 then screen = screen % 4 + 1
+    if dx < -40 then
+      screen = screen % 4 + 1
+      after_mode = false
+    elseif dx > 40 then
+      screen = (screen + 2) % 4 + 1
+      after_mode = false
+    elseif math.abs(dx) <= 12 then
+      -- a tap on the circuit (raw screen coords: the circuit
+      -- sits around 233, 247 with radius about 130) swaps the
+      -- race screen to the race after the next one, and back
+      local cx, cy = x - 233, y - 247
+      if screen == 1 and after
+         and cx * cx + cy * cy < 130 * 130 then
+        after_mode = not after_mode
+      else
+        screen = screen % 4 + 1
+        after_mode = false
+      end
     else return end
     sound.effect("select", {volume = 25})
     draw()
@@ -607,6 +615,28 @@ local function save_race(r)
   store.set("rloc", r.loc)
   store.set("rctry", r.country)
   store.set("repoch", r.epoch)
+end
+
+local function fetch_after()
+  if not next_round then return end
+  http.get("https://api.jolpi.ca/ergast/f1/current/" ..
+           (next_round + 1) .. ".json", function(ok, body)
+    if ok then
+      local data = json.decode(body)
+      local r = data and data.MRData and data.MRData.RaceTable
+                and data.MRData.RaceTable.Races[1]
+      if r then
+        after = {name = r.raceName, cid = r.Circuit.circuitId,
+                 epoch = parse_dt(r.date, r.time)}
+        store.set("aname", after.name)
+        store.set("acid", after.cid)
+        store.set("aepoch", after.epoch)
+        print("f1 after next: " .. r.raceName)
+        return
+      end
+    end
+    print("f1 after fetch failed: " .. tostring(body):sub(1, 60))
+  end)
 end
 
 local function fetch_last()
@@ -634,10 +664,12 @@ local function fetch_last()
         store.set("lres", str)
         draw()
         print("f1 last race: " .. r.raceName)
+        fetch_after()
         return
       end
     end
     print("f1 last fetch failed: " .. tostring(body):sub(1, 60))
+    fetch_after()
   end)
 end
 
@@ -687,6 +719,7 @@ local function fetch_race()
                 and data.MRData.RaceTable.Races[1]
       if r then
         local race_epoch = parse_dt(r.date, r.time)
+        next_round = tonumber(r.round)
         save_race({
           name = r.raceName, cid = r.Circuit.circuitId,
           circuit = r.Circuit.circuitName,

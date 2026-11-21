@@ -24,7 +24,7 @@ local MONTHS = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}
 local WDAYS = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
 
-local CX, CY, R = 200, 166, 98
+local CX, CY, R = 176, 146, 86
 local ANIM_LEN = 2.4 -- seconds
 
 local anim_t0 = nil
@@ -50,9 +50,9 @@ local function render(age)
     return s / 2147483648
   end
   for i = 1, 48 do
-    local x, y = rnd() * 400, rnd() * 400
+    local x, y = rnd() * 352, rnd() * 352
     local dx, dy = x - CX, y - CY
-    if dx * dx + dy * dy > (R + 14) * (R + 14) and y < 258 then
+    if dx * dx + dy * dy > (R + 14) * (R + 14) and y < 227 then
       if i % 7 == 0 then
         c:circle(x, y, 2, STAR_BRIGHT, {fill = true})
       else
@@ -76,9 +76,9 @@ local function render(age)
   c:arc(CX, CY, R, 0, 360, 0x34343F, 2)
 
   local d = time.date()
-  c:text(name, 200, 282, PALE, 28, "center")
+  c:text(name, 176, 248, PALE, 28, "center")
   c:text(illum .. "% lit, day " .. string.format("%.1f", age),
-         200, 320, LAV, 16, "center")
+         176, 282, LAV, 16, "center")
   local nxt, what
   if waxing then
     nxt = math.floor(SYNODIC / 2 - age + 0.5); what = "Full moon"
@@ -86,11 +86,11 @@ local function render(age)
     nxt = math.floor(SYNODIC - age + 0.5); what = "New moon"
   end
   c:text(what .. " in " .. nxt .. (nxt == 1 and " day" or " days"),
-         200, 344, LAV, 14, "center")
+         176, 303, LAV, 14, "center")
   c:text(WDAYS[d.wday] .. ", " .. MONTHS[d.month] .. " " .. d.day .. " " ..
-         d.year, 200, 366, 0x55566E, 14, "center")
+         d.year, 176, 322, 0x55566E, 14, "center")
   if not time.synced() then
-    c:text("clock not synced yet", 200, 386, 0x55566E, 14, "center")
+    c:text("clock not synced yet", 176, 340, 0x55566E, 14, "center")
   end
   return name, illum
 end
@@ -114,7 +114,7 @@ end
 ui.background(BG) -- the sky colour fills the whole round screen
 
 c = ui.canvas{
-  w = 400, h = 400, color = BG,
+  w = 352, h = 352, color = BG,
   on_touch = function(kind, x, y) if kind == "down" then play() end end,
 }
 

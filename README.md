@@ -29,6 +29,10 @@ free for progress rings and other edge displays.
   side switchable, a keypad for the amount, and live rates from
   free keyless sources, cached for offline use.
 
+- [Grand Prix](apps/f1/) — the next Formula 1 race with a drawn
+  circuit outline and the start in local time, plus the
+  championship top 3, from a free keyless API.
+
 ## How an app runs
 
 Each app is a Lua program that runs on the device itself, in the

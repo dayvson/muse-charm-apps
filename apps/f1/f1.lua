@@ -1,12 +1,14 @@
--- Grand Prix: the next Formula 1 race and the championship top 3.
--- Screen one shows the next race under a checkered band: its
--- name, a big drawn outline of the circuit with a red dot
--- lapping it like a car, and the start time in local time with
--- a countdown. Screen two shows the top 3 drivers, each with
--- their flag and their team's colour. Swipe or tap to switch.
--- Data comes from the free, keyless Ergast mirror at
--- api.jolpi.ca and is cached in the store, so the app opens
--- instantly and works offline with the last saved data.
+-- Grand Prix: Formula 1 on the gadget, inside a checkered
+-- ring. Four screens: the next race (a big circuit outline
+-- with a red dot lapping it, the start in local time, and a
+-- thin ring inside the checkers that drains over the last
+-- seven days before lights out), the weekend schedule, the
+-- last race's podium, and the championship top 3 with flags
+-- and team colours. If the app is open at lights out, the
+-- five start lights run their sequence. Swipe or tap to move
+-- between screens. Data comes from the free, keyless Ergast
+-- mirror at api.jolpi.ca and is cached in the store, so the
+-- app opens instantly and works offline with saved data.
 
 local BG = 0x0B0B10
 local PALE = 0xD8D5CC
@@ -69,11 +71,14 @@ end
 
 local race = nil   -- {name, cid, circuit, loc, country, epoch}
 local top = {}     -- up to 3 {code, name, team, pts, wins, nat}
+local sched = {}   -- {{label, epoch}, ...} the race weekend
+local last = nil   -- {name, results = {top 3 like `top`}}
 local season, round = nil, nil
 local state = "offline" -- live, saved, offline
 local screen = 1
 local path = nil   -- {pts, cum, total, cid} for the lap animation
 local anim_dist = 0
+local lights = 0   -- start-lights sequence tick, 0 = not running
 
 do
   local rn = store.get("rname")
@@ -102,6 +107,24 @@ do
   end
   season = store.get("season")
   round = store.get("round")
+  local sc = store.get("sched")
+  if sc then
+    for label, ep in sc:gmatch("([^;:]+):(%d+)") do
+      sched[#sched + 1] = {label = label, epoch = tonumber(ep)}
+    end
+  end
+  local ln = store.get("lname")
+  if ln then
+    last = {name = ln, results = {}}
+    local lr = store.get("lres")
+    if lr then
+      for code, name, team, nat in
+          lr:gmatch("([^|;]+)|([^|;]+)|([^|;]+)|([^;]*)") do
+        last.results[#last.results + 1] =
+          {code = code, name = name, team = team, nat = nat}
+      end
+    end
+  end
 end
 
 -- date math (no os library on the gadget): civil conversions
@@ -155,9 +178,31 @@ local function race_local_parts(epoch)
          h12 .. ":" .. string.format("%02d", mm) .. " " .. ampm
 end
 
+local function parse_dt(date, time_s)
+  if not date then return nil end
+  local y, mo, d = date:match("^(%d+)-(%d+)-(%d+)$")
+  if not y then return nil end
+  local hh, mi = (time_s or "00:00:00Z"):match("^(%d+):(%d+)")
+  return days_from_civil(tonumber(y), tonumber(mo), tonumber(d))
+         * 86400 + tonumber(hh or 0) * 3600 + tonumber(mi or 0) * 60
+end
+
+local function fmt_short(epoch)
+  local t = epoch + local_offset()
+  local days = math.floor(t / 86400)
+  local secs = t - days * 86400
+  local hh = math.floor(secs / 3600)
+  local mm = math.floor((secs % 3600) / 60)
+  local ampm = hh < 12 and "AM" or "PM"
+  local h12 = hh % 12
+  if h12 == 0 then h12 = 12 end
+  return WDAYS[(days + 4) % 7 + 1] .. " " .. h12 .. ":" ..
+         string.format("%02d", mm) .. " " .. ampm
+end
+
 local function countdown(epoch)
   local diff = epoch - time.now()
-  if diff <= 0 then return "race weekend is on" end
+  if diff <= 0 then return "the race is on" end
   local days = math.floor(diff / 86400)
   local hrs = math.floor((diff % 86400) / 3600)
   local min = math.floor((diff % 3600) / 60)
@@ -256,11 +301,19 @@ local function draw_flag(x, y, nat)
   end
 end
 
-local function draw_band()
-  for row = 0, 1 do
-    for i = 0, 19 do
-      local col = ((i + row) % 2 == 0) and PALE or 0x17171F
-      c:rect(66 + i * 11, 6 + row * 11, 11, 11, col)
+-- a checkered ring around the edge of the round screen: two
+-- rows of alternating squares set on a circle, like the rim
+-- ring on the Timer app but checkered
+local function draw_ring()
+  for ring = 0, 1 do
+    local r = 168 - ring * 15
+    local n = math.floor(2 * math.pi * r / 15)
+    for i = 0, n - 1 do
+      local a = (i + ring * 0.5) / n * 2 * math.pi
+      local x = 176 + r * math.cos(a)
+      local y = 176 + r * math.sin(a)
+      local col = ((i + ring) % 2 == 0) and PALE or 0x17171F
+      c:rect(x - 7, y - 7, 14, 14, col)
     end
   end
 end
@@ -268,7 +321,7 @@ end
 local function build_path(cid)
   local raw = OUTLINES[cid]
   if not raw then path = nil return end
-  local cx, cy, half = 176, 180, 84
+  local cx, cy, half = 176, 176, 92
   local pts, cum, total = {}, {}, 0
   for i, p in ipairs(raw) do
     pts[i] = {cx + (p[1] - 50) / 50 * half,
@@ -301,9 +354,9 @@ end
 local function draw_outline(cid)
   if not OUTLINES[cid] then
     -- no tracing for this circuit yet: a location pin instead
-    c:circle(176, 168, 30, GOLD, {fill = false, width = 4})
-    c:circle(176, 168, 10, GOLD, {fill = true})
-    c:triangle(158, 186, 194, 186, 176, 222, GOLD)
+    c:circle(176, 164, 30, GOLD, {fill = false, width = 4})
+    c:circle(176, 164, 10, GOLD, {fill = true})
+    c:triangle(158, 182, 194, 182, 176, 218, GOLD)
     return
   end
   if not path or path.cid ~= cid then build_path(cid) end
@@ -326,26 +379,115 @@ local function draw_outline(cid)
   c:circle(hx, hy, 5, CAR, {fill = true})
 end
 
+-- a thin ring just inside the checkers: full at seven days
+-- out, draining to empty at lights out; gold, then red inside
+-- the last day, and a full red ring while the race is on
+local function draw_arc()
+  if not race then return end
+  local diff = race.epoch - time.now()
+  local frac, col
+  if diff <= 0 then
+    frac, col = 1, RED
+  else
+    frac = diff / (7 * 86400)
+    if frac > 1 then frac = 1 end
+    col = (diff <= 86400) and RED or GOLD
+  end
+  c:arc(176, 176, 140, -90, frac * 360, col, 4)
+end
+
 local function draw_race()
-  c:text("NEXT RACE", 176, 34, LAV, 13, "center")
+  c:text("NEXT RACE", 176, 38, LAV, 13, "center")
   if not race then
     c:text("No race data yet", 176, 150, PALE, 20, "center")
     c:text("check your connection", 176, 182, LAV, 14, "center")
     return
   end
   local head = race.name:gsub(" Grand Prix$", "")
-  c:text(head, 176, 52, PALE, 30, "center")
-  c:text("GRAND PRIX", 176, 86, GOLD, 15, "center")
+  c:text(head, 176, 54, PALE, 30, "center")
+  c:text("GRAND PRIX", 176, 88, GOLD, 15, "center")
+  draw_arc()
   draw_outline(race.cid)
-  c:text(race_local_parts(race.epoch), 176, 282, PALE, 20, "center")
-  c:text(countdown(race.epoch) .. "  -  " .. state, 176, 308,
-         GOLD, 14, "center")
+  c:text(race_local_parts(race.epoch), 176, 274, PALE, 18, "center")
+  c:text(countdown(race.epoch) .. "  -  " .. state, 176, 298,
+         GOLD, 13, "center")
+end
+
+local function draw_schedule()
+  c:text("WEEKEND SCHEDULE", 176, 40, LAV, 13, "center")
+  if race then
+    local head = race.name:gsub(" Grand Prix$", "")
+    c:text(head, 176, 58, PALE, 22, "center")
+  end
+  if #sched == 0 then
+    c:text("No schedule yet", 176, 160, PALE, 18, "center")
+    return
+  end
+  local now = time.now()
+  local next_i = nil
+  for i, s in ipairs(sched) do
+    if s.epoch > now and not next_i then next_i = i end
+  end
+  for i, s in ipairs(sched) do
+    local y = 104 + (i - 1) * 32
+    local col = (s.epoch <= now) and DIM
+                or ((i == next_i) and GOLD or PALE)
+    c:text(s.label, 66, y, col, 16, "left")
+    c:text(fmt_short(s.epoch), 286, y, col, 16, "right")
+  end
+end
+
+local function draw_podium()
+  c:text("LAST RACE", 176, 40, LAV, 13, "center")
+  if not last or #last.results == 0 then
+    c:text("No result yet", 176, 160, PALE, 18, "center")
+    return
+  end
+  local head = last.name:gsub(" Grand Prix$", "")
+  c:text(head, 176, 58, PALE, 22, "center")
+  local medals = {GOLD, 0xC0C0C0, 0xCD7F32}
+  for i, d in ipairs(last.results) do
+    local y = 104 + (i - 1) * 56
+    c:rect(44, y, 5, 40, team_color(d.team))
+    draw_flag(56, y + 4, d.nat)
+    c:text(i .. ". " .. d.code .. " - " .. d.name, 104, y + 2,
+           medals[i], 19, "left")
+    c:text(d.team, 104, y + 27, LAV, 13, "left")
+  end
+  c:text("the podium from the last race", 176, 292, LAV, 13,
+         "center")
+end
+
+-- the start-lights sequence: five red lights come on one by
+-- one, hold, then go out together under a GO flash
+local function draw_lights()
+  local head = race and race.name:gsub(" Grand Prix$", "")
+               or "GRAND PRIX"
+  c:text(head:upper(), 176, 62, PALE, 24, "center")
+  c:text("LIGHTS OUT", 176, 92, LAV, 13, "center")
+  local lit
+  if lights <= 40 then lit = math.ceil(lights / 8)
+  elseif lights <= 48 then lit = 5
+  else lit = 0 end
+  for i = 1, 5 do
+    local x = 176 + (i - 3) * 46
+    if lights > 48 then
+      c:circle(x, 176, 17, 0x2BD96A, {fill = true})
+    elseif i <= lit then
+      c:circle(x, 176, 17, CAR, {fill = true})
+    else
+      c:circle(x, 176, 17, DIM, {fill = false, width = 3})
+    end
+  end
+  if lights > 48 then
+    c:text("GO GO GO", 176, 226, GOLD, 28, "center")
+  end
 end
 
 local function draw_standings()
-  c:text("CHAMPIONSHIP", 176, 36, LAV, 13, "center")
+  c:text("CHAMPIONSHIP", 176, 40, LAV, 13, "center")
   if season then
-    c:text(season .. " - after round " .. round, 176, 56, GOLD, 14,
+    c:text(season .. " - after round " .. round, 176, 60, GOLD, 14,
            "center")
   end
   if #top == 0 then
@@ -353,40 +495,49 @@ local function draw_standings()
     return
   end
   for i, d in ipairs(top) do
-    local y = 92 + (i - 1) * 62
-    c:rect(22, y, 5, 42, team_color(d.team))
-    draw_flag(36, y + 4, d.nat)
-    c:text(i .. ". " .. d.code .. " - " .. d.name, 86, y + 2,
+    local y = 96 + (i - 1) * 62
+    c:rect(44, y, 5, 42, team_color(d.team))
+    draw_flag(56, y + 4, d.nat)
+    c:text(i .. ". " .. d.code .. " - " .. d.name, 104, y + 2,
            i == 1 and GOLD or PALE, 19, "left")
     c:text(d.team .. " - " .. d.pts .. " pts - " .. d.wins ..
-           (d.wins == 1 and " win" or " wins"), 86, y + 28,
+           (d.wins == 1 and " win" or " wins"), 104, y + 28,
            LAV, 13, "left")
-    if i < #top then c:line(22, y + 52, 330, y + 52, DIM, 1) end
+    if i < #top then c:line(44, y + 52, 308, y + 52, DIM, 1) end
   end
-  c:text("top 3 in the title race", 176, 300, LAV, 14, "center")
+  c:text("top 3 in the title race", 176, 292, LAV, 13, "center")
 end
 
 local function draw()
   c:clear(BG)
-  draw_band()
-  if screen == 1 then draw_race() else draw_standings() end
-  for i = 1, 2 do
-    c:circle(166 + (i - 1) * 20, 338, 4,
+  draw_ring()
+  if lights > 0 then
+    draw_lights()
+    return
+  end
+  if screen == 1 then draw_race()
+  elseif screen == 2 then draw_schedule()
+  elseif screen == 3 then draw_podium()
+  else draw_standings() end
+  for i = 1, 4 do
+    c:circle(146 + (i - 1) * 20, 318, 3,
              i == screen and PALE or DIM, {fill = true})
   end
 end
 
--- launcher icon: a white circuit loop on F1 red
+-- launcher icon: the F1 mark, drawn in red on near-black: a
+-- slanted F whose top bar flows into the 1 beside it
 do
-  local ic = ui.canvas{w = 96, h = 96, color = RED}
-  local pts = {{24,38},{40,24},{62,22},{76,34},{70,50},{78,64},
-               {60,74},{40,70},{26,58}}
-  for i = 1, #pts do
-    local a = pts[i]
-    local b = pts[i % #pts + 1]
-    ic:line(a[1], a[2], b[1], b[2], 0xFFFFFF, 5)
+  local ic = ui.canvas{w = 96, h = 96, color = 0x0B0B10}
+  local function quad(x1, y1, x2, y2, x3, y3, x4, y4)
+    ic:triangle(x1, y1, x2, y2, x3, y3, RED)
+    ic:triangle(x1, y1, x3, y3, x4, y4, RED)
   end
-  ic:circle(24, 38, 5, 0xFFFFFF, {fill = true})
+  quad(30, 22, 42, 22, 34, 74, 22, 74)   -- F stem
+  quad(30, 22, 82, 22, 75, 34, 37, 34)   -- F top bar
+  quad(36, 42, 64, 42, 59, 53, 32, 53)   -- F mid bar
+  quad(74, 22, 86, 22, 78, 74, 66, 74)   -- the 1
+  ic:triangle(74, 22, 62, 30, 72, 34, RED) -- the 1's flag
   app.icon(ic)
   ic:delete()
 end
@@ -402,9 +553,9 @@ c = ui.canvas{
     elseif kind == "up" and down_x then
       local dx = x - down_x
       down_x = nil
-      if dx < -40 then screen = 2
-      elseif dx > 40 then screen = 1
-      elseif math.abs(dx) <= 12 then screen = (screen == 1) and 2 or 1
+      if dx < -40 then screen = screen % 4 + 1
+      elseif dx > 40 then screen = (screen + 2) % 4 + 1
+      elseif math.abs(dx) <= 12 then screen = screen % 4 + 1
       else return end
       sound.effect("select", {volume = 25})
       draw()
@@ -423,6 +574,38 @@ local function save_race(r)
   store.set("rloc", r.loc)
   store.set("rctry", r.country)
   store.set("repoch", r.epoch)
+end
+
+local function fetch_last()
+  http.get("https://api.jolpi.ca/ergast/f1/current/last/" ..
+           "results.json", function(ok, body)
+    if ok then
+      local data = json.decode(body)
+      local r = data and data.MRData and data.MRData.RaceTable
+                and data.MRData.RaceTable.Races[1]
+      if r and r.Results then
+        last = {name = r.raceName, results = {}}
+        local str = ""
+        for i = 1, math.min(3, #r.Results) do
+          local e = r.Results[i]
+          local d = {code = e.Driver.code,
+                     name = e.Driver.familyName,
+                     team = e.Constructor.name,
+                     nat = e.Driver.nationality}
+          last.results[i] = d
+          if i > 1 then str = str .. ";" end
+          str = str .. d.code .. "|" .. d.name .. "|" .. d.team ..
+                "|" .. (d.nat or "")
+        end
+        store.set("lname", last.name)
+        store.set("lres", str)
+        draw()
+        print("f1 last race: " .. r.raceName)
+        return
+      end
+    end
+    print("f1 last fetch failed: " .. tostring(body):sub(1, 60))
+  end)
 end
 
 local function fetch_standings()
@@ -452,10 +635,12 @@ local function fetch_standings()
         state = "live"
         draw()
         print("f1 standings updated, round " .. round)
+        fetch_last()
         return
       end
     end
     print("f1 standings fetch failed: " .. tostring(body):sub(1, 60))
+    fetch_last()
   end)
 end
 
@@ -468,17 +653,41 @@ local function fetch_race()
       local r = data and data.MRData and data.MRData.RaceTable
                 and data.MRData.RaceTable.Races[1]
       if r then
-        local y, mo, d = r.date:match("^(%d+)-(%d+)-(%d+)$")
-        local hh, mi = (r.time or "00:00:00Z"):match("^(%d+):(%d+)")
+        local race_epoch = parse_dt(r.date, r.time)
         save_race({
           name = r.raceName, cid = r.Circuit.circuitId,
           circuit = r.Circuit.circuitName,
           loc = r.Circuit.Location.locality,
           country = r.Circuit.Location.country,
-          epoch = days_from_civil(tonumber(y), tonumber(mo),
-                                  tonumber(d)) * 86400
-                  + tonumber(hh) * 3600 + tonumber(mi) * 60,
+          epoch = race_epoch,
         })
+        local sess = {}
+        local function add_s(label, obj)
+          if obj then
+            local ep = parse_dt(obj.date, obj.time)
+            if ep then sess[#sess + 1] = {label = label, epoch = ep} end
+          end
+        end
+        add_s("FP1", r.FirstPractice)
+        add_s("FP2", r.SecondPractice)
+        add_s("FP3", r.ThirdPractice)
+        add_s("SPRINT", r.Sprint)
+        add_s("QUALI", r.Qualifying)
+        sess[#sess + 1] = {label = "RACE", epoch = race_epoch}
+        for i = 2, #sess do
+          local j = i
+          while j > 1 and sess[j - 1].epoch > sess[j].epoch do
+            sess[j], sess[j - 1] = sess[j - 1], sess[j]
+            j = j - 1
+          end
+        end
+        sched = sess
+        local str = ""
+        for i, s in ipairs(sess) do
+          if i > 1 then str = str .. ";" end
+          str = str .. s.label .. ":" .. s.epoch
+        end
+        store.set("sched", str)
         fetched = true
         draw()
         print("f1 next race: " .. r.raceName)
@@ -492,8 +701,28 @@ local function fetch_race()
 end
 ui.after(1200, fetch_race)
 
--- the car laps the circuit: one lap every 4.5 seconds
+-- the car laps the circuit: one lap every 4.5 seconds. The
+-- same tick runs the start-lights sequence: if the app is
+-- open in the two minutes after lights out (and has not
+-- played it for this race), the five lights run once.
 ui.every(50, function()
+  if lights > 0 then
+    lights = lights + 1
+    if lights == 49 then sound.effect("powerup", {volume = 50}) end
+    if lights > 60 then lights = 0 end
+    draw()
+    return
+  end
+  if race and store.get("lights") ~= race.epoch then
+    local now = time.now()
+    if now >= race.epoch and now <= race.epoch + 120 then
+      store.set("lights", race.epoch)
+      screen = 1
+      lights = 1
+      draw()
+      return
+    end
+  end
   if screen == 1 and path then
     anim_dist = anim_dist + path.total * 50 / 4500
     draw()

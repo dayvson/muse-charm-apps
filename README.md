@@ -29,8 +29,9 @@ free for progress rings and other edge displays.
   side switchable, a keypad for the amount, and live rates from
   free keyless sources, cached for offline use.
 
-- [Grand Prix](apps/f1/) — the next Formula 1 race with a drawn
-  circuit outline and the start in local time, plus the
+- [F1](apps/f1/) — Formula 1 inside a checkered ring: the
+  next race with a lapping car on a drawn circuit outline, the
+  weekend schedule, the last race's podium and the
   championship top 3, from a free keyless API.
 
 ## How an app runs

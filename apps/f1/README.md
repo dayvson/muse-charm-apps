@@ -1,63 +1,82 @@
-# Grand Prix
+# F1
 
-The next Formula 1 race and the championship top 3, running on
-the gadget in the Apps by Muse launcher. Lua source: `f1.lua`.
-Installed on the gadget with id `f1`.
+Formula 1 on the gadget, in the Apps by Muse launcher. Lua
+source: `f1.lua`. Installed on the gadget with id `f1` and
+shown in the launcher as F1.
 
-## The two screens
+Everything sits inside a checkered ring: two rows of
+alternating squares set on a circle around the edge of the
+round screen. Swipe or tap to move between the four screens;
+the four dots at the bottom show where you are.
 
-Both screens carry a checkered band across the top.
+## The four screens
 
 - Next race: the Grand Prix name over a big drawn outline of
   the circuit, drawn as a road with a pale centre line. A red
-  dot laps the circuit like a car, about one lap every four and
-  a half seconds, with a short fading trail behind it and a
-  white dot marking the start. Under it, the start time
-  converted to the gadget's local time and a countdown.
+  dot laps the circuit like a car, about one lap every four
+  and a half seconds, with a short fading trail behind it and
+  a white dot marking the start. Just inside the checkered
+  ring, a thin arc drains over the last seven days before the
+  race: gold, then red inside the last day, and a full red
+  ring while the race is on. Under the circuit, the start
+  time in local time and a countdown.
+- Weekend schedule: every session of the coming weekend in
+  local time (practice, qualifying, the sprint when there is
+  one, and the race). Sessions already over are dimmed; the
+  next one coming up is gold.
+- Last race: the previous Grand Prix and its podium, the
+  three finishers in medal colours with their flags and
+  teams.
 - Championship: the top 3 drivers in the title race. Each row
-  has a bar in the team's colour, the driver's flag drawn from
-  their nationality, then their name, team, points and wins,
-  with the season and round the standings are from.
+  has a bar in the team's colour, the driver's flag drawn
+  from their nationality, then their name, team, points and
+  wins, with the season and round the standings are from.
 
-Swipe either way or tap to switch screens; the two dots at the
-bottom show where you are.
+## Lights out
 
-## Flags
-
-The flags are drawn, not images: stripe recipes (vertical or
-horizontal thirds, halves) cover most countries, and a few are
-drawn specially: the Union Jack, the Nordic crosses, the Swiss
-cross, Japan's disc, the United States, Australia, Brazil,
-Canada, Thailand and China. A nationality with no recipe yet
-gets a plain grey flag.
+If the app is open in the two minutes after a race starts
+(and has not already played it for that race), the five
+start lights take over the screen: they come on one by one,
+hold, then go out together under a green GO GO GO flash and
+a sound. It plays once per race.
 
 ## Data
 
-Race and standings come from the Ergast mirror at api.jolpi.ca,
-a free API that needs no key. Both are fetched when the app
-opens (standings right after the race, since the gadget runs
-one request at a time) and cached in the app store, so the app
-opens instantly and still works offline with the last saved
-data. The line under the countdown says whether the data on
-screen is live or saved.
+Race, schedule, standings and results come from the Ergast
+mirror at api.jolpi.ca, a free API that needs no key. They
+are fetched in a chain when the app opens (one request at a
+time, as the gadget requires) and cached in the app store,
+so the app opens instantly and still works offline with the
+last saved data. The line under the countdown on the race
+screen says whether the data on screen is live or saved.
 
-The API gives the race start in UTC; the app converts it with
-its own date math and the offset it derives from the gadget's
-clock, so the time shown is the gadget's local time wherever
-it is.
+The API gives times in UTC; the app converts them with its
+own date math and the offset it derives from the gadget's
+clock, so every time shown is the gadget's local time
+wherever it is.
 
 ## Circuit outlines
 
 No API serves track shapes, so the outlines are simplified
 tracings stored in the app as point lists in a 0..100 box:
-the Las Vegas Strip Circuit, Lusail and Yas Marina, the three
-circuits left in the 2026 season. A circuit with no tracing
-yet gets a location pin instead. Adding one is just a new
-point list under its circuit id in `OUTLINES`.
+the Las Vegas Strip Circuit, Lusail and Yas Marina, the
+three circuits left in the 2026 season. A circuit with no
+tracing yet gets a location pin instead. Adding one is just
+a new point list under its circuit id in `OUTLINES`.
+
+## Flags
+
+The flags are drawn, not images: stripe recipes (vertical or
+horizontal thirds, halves) cover most countries, and a few
+are drawn specially: the Union Jack, the Nordic crosses, the
+Swiss cross, Japan's disc, the United States, Australia,
+Brazil, Canada, Thailand and China. A nationality with no
+recipe yet gets a plain grey flag.
 
 ## Icon
 
-The app sets its launcher icon at start-up with app.icon: a
-white circuit loop drawn on a 96x96 canvas over F1 red. The
-board keeps it, so the launcher shows the loop instead of the
-app's initials.
+The app sets its launcher icon at start-up with app.icon:
+the F1 mark drawn in red on near-black, a slanted F whose
+top bar flows into the 1 beside it, built from triangles on
+a 96x96 canvas. The board keeps it, so the launcher shows
+the mark instead of the app's initials.

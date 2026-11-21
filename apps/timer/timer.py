@@ -28,7 +28,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import render as R
 
-PRESET_SECONDS = {"2m": 120, "3m": 180, "5m": 300, "10m": 600, "15m": 900}
+PRESET_SECONDS = {"2m": 120, "3m": 180, "5m": 300}
 
 _state = {"paused": False}
 
@@ -49,7 +49,7 @@ def main():
     group.add_argument("--seconds", type=float)
     ap.add_argument("--frames-dir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "frames"))
     ap.add_argument("--step", type=float, default=1.0, help="seconds per frame")
-    ap.add_argument("--done-frames", type=int, default=6, help="flashing frames to emit after zero")
+    ap.add_argument("--done-frames", type=int, default=8, help="blinking frames to emit after zero")
     args = ap.parse_args()
 
     if args.preset:

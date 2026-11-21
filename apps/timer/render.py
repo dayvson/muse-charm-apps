@@ -26,7 +26,7 @@ GREEN = (46, 204, 113)
 YELLOW = (241, 196, 15)
 RED = (231, 76, 60)
 
-PRESETS = ("2m", "3m", "5m", "10m", "15m")
+PRESETS = ("2m", "3m", "5m")
 
 _FONT_CANDIDATES = (
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -78,32 +78,46 @@ def _centered(draw, y, text, font, fill):
 
 def _chips(draw, active=None):
     """The preset row, drawn as it would look on the device."""
-    font = _font(24)
-    gap = 8
+    font = _font(34)
+    gap = 14
     widths = []
     for label in PRESETS:
         box = draw.textbbox((0, 0), label, font=font)
-        widths.append(box[2] - box[0] + 22)
+        widths.append(box[2] - box[0] + 36)
     total = sum(widths) + gap * (len(PRESETS) - 1)
     x = (SIZE - total) / 2
-    y = 324
+    y = 322
     for label, w in zip(PRESETS, widths):
         fill = (52, 58, 70) if label != active else (84, 94, 112)
-        draw.rounded_rectangle([x, y, x + w, y + 42], radius=21, fill=fill)
+        draw.rounded_rectangle([x, y, x + w, y + 54], radius=27, fill=fill)
         box = draw.textbbox((0, 0), label, font=font)
-        draw.text((x + (w - (box[2] - box[0])) / 2 - box[0], y + 6),
+        draw.text((x + (w - (box[2] - box[0])) / 2 - box[0], y + 8),
                   label, font=font, fill=TEXT)
         x += w + gap
 
 
 def render(remaining, total, state="running", active_preset=None, flash=False):
-    """One frame. state is one of: ready, running, paused, done."""
+    """One frame. state is one of: ready, running, paused, done.
+
+    The done state blinks red: with flash on, the whole screen goes
+    red with dark text; with flash off, it is the dark screen with a
+    red ring. Alternating the two is the alarm.
+    """
+    if state == "done" and flash:
+        img = Image.new("RGB", (SIZE, SIZE), RED)
+        draw = ImageDraw.Draw(img)
+        box = [CENTER - RING_RADIUS, CENTER - RING_RADIUS,
+               CENTER + RING_RADIUS, CENTER + RING_RADIUS]
+        draw.arc(box, start=0, end=360, fill=(120, 20, 12), width=RING_WIDTH)
+        _centered(draw, 168, "TIME", _font(84), (30, 6, 4))
+        _centered(draw, 252, "UP", _font(84), (30, 6, 4))
+        _centered(draw, 356, "tap to dismiss", _font(26), (90, 16, 10))
+        return img
+
     img = Image.new("RGB", (SIZE, SIZE), BG)
     draw = ImageDraw.Draw(img)
 
     color = RED if state == "done" else phase_color(remaining, total)
-    if state == "done" and flash:
-        color = (255, 120, 100)
 
     # The track, then the time left as an arc that starts at the top
     # and is eaten clockwise.
@@ -132,5 +146,7 @@ def render(remaining, total, state="running", active_preset=None, flash=False):
 
 
 def save_frame(img, path):
-    img.save(path, "JPEG", quality=88)
+    # Quality 70 keeps a frame near 15 KB: the device draws it in
+    # about a second, which is what makes per-second updates possible.
+    img.save(path, "JPEG", quality=70)
     return path

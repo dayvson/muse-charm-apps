@@ -22,6 +22,15 @@ already prints a `{"state": "done"}` event at zero; the moment the
 device exposes a sound command, the driver plays the alarm on that
 event and nothing in this app has to change.
 
+## Driving the device
+
+Frames go to the gadget with `display.draw_url` today: on the
+firmware paired here, `display.draw_file` answers "failed to
+allocate" for every image, even a 1.5 KB test file, while the same
+JPEG over a URL draws fine (verified 2026-11-21 with a full 30 second
+demo run, 20 frames). If a later firmware fixes draw_file, the driver
+can switch back with no app changes.
+
 ## Touch
 
 The screen shows the preset chips and the start and pause states as

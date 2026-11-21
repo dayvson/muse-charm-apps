@@ -17,6 +17,10 @@ free for progress rings and other edge displays.
   canvas: drag to move the paddle, tap to launch, clear 35 bricks,
   with sound effects and a stored best score.
 
+- [Moon Phase](apps/moon/) — a picture of today's moon drawn on a
+  canvas: the phase computed from the date, with the phase name,
+  percent lit, moon age and the next full or new moon.
+
 ## How an app runs
 
 Each app is a Lua program that runs on the device itself, in the

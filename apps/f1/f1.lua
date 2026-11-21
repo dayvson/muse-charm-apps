@@ -69,6 +69,34 @@ local function team_color(team)
   return DIM
 end
 
+-- The drawing surface is one full-screen 466x466 canvas, so
+-- the checkered ring can sit at the true edge of the round
+-- screen. All the drawing code works in a 352 box centred on
+-- it; this proxy shifts every coordinate by 57 to land there.
+-- The canvas is created first, before anything else allocates.
+local touch_fn = nil
+local raw = ui.canvas{
+  w = 466, h = 466, color = BG,
+  on_touch = function(kind, x, y)
+    if touch_fn then touch_fn(kind, x, y) end
+  end,
+}
+local c = {}
+function c:clear(col) raw:clear(col) end
+function c:rect(x, y, w, h, col, o)
+  raw:rect(x + 57, y + 57, w, h, col, o) end
+function c:circle(x, y, r, col, o)
+  raw:circle(x + 57, y + 57, r, col, o) end
+function c:line(x1, y1, x2, y2, col, w)
+  raw:line(x1 + 57, y1 + 57, x2 + 57, y2 + 57, col, w) end
+function c:triangle(x1, y1, x2, y2, x3, y3, col)
+  raw:triangle(x1 + 57, y1 + 57, x2 + 57, y2 + 57,
+               x3 + 57, y3 + 57, col) end
+function c:text(s, x, y, col, size, align)
+  raw:text(s, x + 57, y + 57, col, size, align) end
+function c:arc(x, y, r, a0, sweep, col, w)
+  raw:arc(x + 57, y + 57, r, a0, sweep, col, w) end
+
 local race = nil   -- {name, cid, circuit, loc, country, epoch}
 local top = {}     -- up to 3 {code, name, team, pts, wins, nat}
 local sched = {}   -- {{label, epoch}, ...} the race weekend
@@ -211,8 +239,6 @@ local function countdown(epoch)
   return "in " .. min .. "m"
 end
 
-local c
-
 local function draw_flag(x, y, nat)
   local w, h = 38, 25
   local spec = FLAGS[nat]
@@ -301,19 +327,21 @@ local function draw_flag(x, y, nat)
   end
 end
 
--- a checkered ring around the edge of the round screen: two
--- rows of alternating squares set on a circle, like the rim
--- ring on the Timer app but checkered
+-- a checkered ring at the very edge of the round screen: two
+-- rows of alternating squares set on a circle at radius 218
+-- and 202 (in the centred 352 drawing space the proxy shifts
+-- onto the full-screen canvas), like the rim ring on the
+-- Timer app but checkered
 local function draw_ring()
   for ring = 0, 1 do
-    local r = 168 - ring * 15
-    local n = math.floor(2 * math.pi * r / 15)
+    local r = 218 - ring * 16
+    local n = math.floor(2 * math.pi * r / 16)
     for i = 0, n - 1 do
       local a = (i + ring * 0.5) / n * 2 * math.pi
       local x = 176 + r * math.cos(a)
       local y = 176 + r * math.sin(a)
       local col = ((i + ring) % 2 == 0) and PALE or 0x17171F
-      c:rect(x - 7, y - 7, 14, 14, col)
+      c:rect(x - 7, y - 7, 15, 15, col)
     end
   end
 end
@@ -321,7 +349,7 @@ end
 local function build_path(cid)
   local raw = OUTLINES[cid]
   if not raw then path = nil return end
-  local cx, cy, half = 176, 176, 92
+  local cx, cy, half = 176, 184, 100
   local pts, cum, total = {}, {}, 0
   for i, p in ipairs(raw) do
     pts[i] = {cx + (p[1] - 50) / 50 * half,
@@ -379,10 +407,11 @@ local function draw_outline(cid)
   c:circle(hx, hy, 5, CAR, {fill = true})
 end
 
--- a thin ring just inside the checkers: full at seven days
--- out, draining to empty at lights out; gold, then red inside
--- the last day, and a full red ring while the race is on
-local function draw_arc()
+-- a segmented ring just inside the checkers: 48 segments,
+-- lit from the top clockwise for the share of the last seven
+-- days still to go before lights out; gold, then red inside
+-- the last day, and fully red while the race is on
+local function draw_segs()
   if not race then return end
   local diff = race.epoch - time.now()
   local frac, col
@@ -393,23 +422,30 @@ local function draw_arc()
     if frac > 1 then frac = 1 end
     col = (diff <= 86400) and RED or GOLD
   end
-  c:arc(176, 176, 140, -90, frac * 360, col, 4)
+  local n = 48
+  local lit = math.ceil(frac * n)
+  for i = 0, n - 1 do
+    local a = -math.pi / 2 + (i + 0.5) * 2 * math.pi / n
+    local x = 176 + 140 * math.cos(a)
+    local y = 176 + 140 * math.sin(a)
+    c:rect(x - 3, y - 3, 6, 6, (i < lit) and col or 0x1C1C24)
+  end
 end
 
 local function draw_race()
-  c:text("NEXT RACE", 176, 38, LAV, 13, "center")
+  c:text("NEXT RACE", 176, 42, LAV, 13, "center")
   if not race then
     c:text("No race data yet", 176, 150, PALE, 20, "center")
     c:text("check your connection", 176, 182, LAV, 14, "center")
     return
   end
   local head = race.name:gsub(" Grand Prix$", "")
-  c:text(head, 176, 54, PALE, 30, "center")
-  c:text("GRAND PRIX", 176, 88, GOLD, 15, "center")
-  draw_arc()
+  c:text(head, 176, 58, PALE, 30, "center")
+  c:text("GRAND PRIX", 176, 90, GOLD, 15, "center")
+  draw_segs()
   draw_outline(race.cid)
-  c:text(race_local_parts(race.epoch), 176, 274, PALE, 18, "center")
-  c:text(countdown(race.epoch) .. "  -  " .. state, 176, 298,
+  c:text(race_local_parts(race.epoch), 176, 268, PALE, 17, "center")
+  c:text(countdown(race.epoch) .. "  -  " .. state, 176, 292,
          GOLD, 13, "center")
 end
 
@@ -454,7 +490,7 @@ local function draw_podium()
            medals[i], 19, "left")
     c:text(d.team, 104, y + 27, LAV, 13, "left")
   end
-  c:text("the podium from the last race", 176, 292, LAV, 13,
+  c:text("the podium from the last race", 176, 288, LAV, 13,
          "center")
 end
 
@@ -505,7 +541,7 @@ local function draw_standings()
            LAV, 13, "left")
     if i < #top then c:line(44, y + 52, 308, y + 52, DIM, 1) end
   end
-  c:text("top 3 in the title race", 176, 292, LAV, 13, "center")
+  c:text("top 3 in the title race", 176, 288, LAV, 13, "center")
 end
 
 local function draw()
@@ -520,7 +556,7 @@ local function draw()
   elseif screen == 3 then draw_podium()
   else draw_standings() end
   for i = 1, 4 do
-    c:circle(146 + (i - 1) * 20, 318, 3,
+    c:circle(146 + (i - 1) * 20, 306, 3,
              i == screen and PALE or DIM, {fill = true})
   end
 end
@@ -545,23 +581,20 @@ end
 ui.background(BG)
 
 local down_x = nil
-c = ui.canvas{
-  w = 352, h = 352, color = BG,
-  on_touch = function(kind, x, y)
-    if kind == "down" then
-      down_x = x
-    elseif kind == "up" and down_x then
-      local dx = x - down_x
-      down_x = nil
-      if dx < -40 then screen = screen % 4 + 1
-      elseif dx > 40 then screen = (screen + 2) % 4 + 1
-      elseif math.abs(dx) <= 12 then screen = screen % 4 + 1
-      else return end
-      sound.effect("select", {volume = 25})
-      draw()
-    end
-  end,
-}
+touch_fn = function(kind, x, y)
+  if kind == "down" then
+    down_x = x
+  elseif kind == "up" and down_x then
+    local dx = x - down_x
+    down_x = nil
+    if dx < -40 then screen = screen % 4 + 1
+    elseif dx > 40 then screen = (screen + 2) % 4 + 1
+    elseif math.abs(dx) <= 12 then screen = screen % 4 + 1
+    else return end
+    sound.effect("select", {volume = 25})
+    draw()
+  end
+end
 
 draw()
 print("f1 ready, screen " .. screen .. ", data " .. state)

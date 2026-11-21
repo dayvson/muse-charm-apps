@@ -5,9 +5,12 @@ source: `f1.lua`. Installed on the gadget with id `f1` and
 shown in the launcher as F1.
 
 Everything sits inside a checkered ring: two rows of
-alternating squares set on a circle around the edge of the
-round screen. Swipe or tap to move between the four screens;
-the four dots at the bottom show where you are.
+alternating squares set on a circle at the very edge of the
+round screen. The app draws on one full-screen 466x466
+canvas (created first, before anything else allocates), and
+all the content is drawn in a 352 box centred on it. Swipe
+or tap to move between the four screens; the four dots at
+the bottom show where you are.
 
 ## The four screens
 
@@ -16,10 +19,11 @@ the four dots at the bottom show where you are.
   dot laps the circuit like a car, about one lap every four
   and a half seconds, with a short fading trail behind it and
   a white dot marking the start. Just inside the checkered
-  ring, a thin arc drains over the last seven days before the
-  race: gold, then red inside the last day, and a full red
-  ring while the race is on. Under the circuit, the start
-  time in local time and a countdown.
+  ring, a ring of 48 small segments lights up from the top
+  clockwise for the share of the last seven days still to go
+  before the race: gold, then red inside the last day, and
+  fully red while the race is on. Under the circuit, the
+  start time in local time and a countdown.
 - Weekend schedule: every session of the coming weekend in
   local time (practice, qualifying, the sprint when there is
   one, and the race). Sessions already over are dimmed; the

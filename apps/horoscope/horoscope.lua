@@ -247,9 +247,9 @@ local function draw()
   for i, line in ipairs(lines) do
     c:text(line, 200, 238 + (i - 1) * 23, PALE, 16, "center")
   end
+  -- fixed spot below the wheel, clear of its bottom dot and track
   c:text("Lucky " .. lucky_number(idx) .. "  -  " .. pick(COLORS, idx, 4) ..
-         "  -  " .. pick(MOODS, idx, 5), 200, 238 + #lines * 23 + 8,
-         LAV, 14, "center")
+         "  -  " .. pick(MOODS, idx, 5), 200, 386, LAV, 14, "center")
 end
 
 local function change(dir)

@@ -99,6 +99,8 @@ local function clear_level()
   reset_ball()
 end
 
+ui.background(BG) -- the playfield colour fills the whole round screen
+
 local c = ui.canvas{
   w = W, h = H, color = BG,
   on_touch = function(kind, x, y)

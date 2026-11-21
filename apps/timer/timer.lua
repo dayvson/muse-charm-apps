@@ -1,8 +1,12 @@
--- Timer: pick 2, 3 or 5 minutes, tap to start, tap again to pause.
--- A ring around the rim is eaten away as time runs: green, yellow in
--- the last minute (or the last 35% of a short timer), red for the
--- last stretch. At zero the whole screen blinks red with TIME UP
--- and a short two-tone alarm plays, twice.
+-- Timer: one timer in the middle, starting at 5 minutes, with a
+-- minus button on the left and a plus button on the right to set
+-- the duration (1 minute steps, 1 to 60 minutes). Tap the screen
+-- to start, tap again to pause. A soft tick sounds each second
+-- while it runs. A ring around the rim is eaten away as time
+-- passes: green, yellow in the last minute (or the last 35% of a
+-- short timer), red for the last stretch. At zero the screen
+-- blinks red and a five second tune loops until the timer is
+-- stopped with a tap.
 -- Runs on the gadget itself (Apps by Muse launcher, Lua).
 
 local GREEN = 0x34C759
@@ -14,13 +18,8 @@ local TRACK = 0x23232B
 local PALE = 0xD8D5CC
 local LAV = 0x8E8CA8
 local BTN = 0x2C2C2E
-local BTN_SEL = 0x44506B
 
-local PRESETS = {120, 180, 300}
-local NAMES = {"2m", "3m", "5m"}
-
-local preset = store.get("preset") or 3
-local total = PRESETS[preset]
+local total = store.get("total") or 300
 local left = total
 local running = false
 local done = false
@@ -28,8 +27,8 @@ local deadline = 0
 local last_sec = -1
 local last_permille = -1
 local last_color = nil
-local flash_ticks = 0
 local flash_id = nil
+local alarm_id = nil
 
 -- launcher icon: a clock on the app's green
 do
@@ -49,14 +48,6 @@ local ring = ui.arc{r = 214, width = 16, max = 1000, value = 1000,
 local time_label = ui.label{text = "5:00", y = -12, size = 48, color = PALE}
 local state_label = ui.label{text = "TAP TO START", y = -72, size = 20,
                              color = LAV}
-
-local buttons = {}
-
-local function paint_buttons()
-  for i, b in ipairs(buttons) do
-    b:set{color = (i == preset) and BTN_SEL or BTN}
-  end
-end
 
 local function fmt(sec)
   if sec < 0 then sec = 0 end
@@ -85,16 +76,23 @@ local function paint()
   if sec ~= last_sec then
     last_sec = sec
     time_label:set{text = fmt(sec)}
+    if running and not done then
+      sound.effect("tick", {volume = 14})
+    end
   end
 end
 
-local function stop_flash()
+local function stop_alerts()
   if flash_id then ui.cancel(flash_id) flash_id = nil end
+  if alarm_id then ui.cancel(alarm_id) alarm_id = nil end
+  sound.stop()
   ui.background(BG)
 end
 
+-- an original five second tune; it loops until the timer stops
 local function alarm()
-  sound.play("A5:8 F5:8 A5:8 F5:8 A5:4", {bpm = 170, volume = 55})
+  sound.play("E5:4 G5:4 C6:4 G5:4 A5:4 G5:4 E5:4 D5:4",
+             {bpm = 100, volume = 55})
 end
 
 local function finish()
@@ -104,29 +102,26 @@ local function finish()
   paint()
   ring:set{value = 1000, color = RED}
   time_label:set{text = "TIME UP", color = RED}
-  state_label:set{text = "TAP TO RESET"}
+  state_label:set{text = "TAP TO STOP"}
   alarm()
-  flash_ticks = 0
+  alarm_id = ui.every(5000, alarm)
+  local lit = false
   flash_id = ui.every(450, function()
-    flash_ticks = flash_ticks + 1
-    if flash_ticks % 2 == 1 then
+    lit = not lit
+    if lit then
       ui.background(FLASH)
       time_label:set{color = PALE}
     else
       ui.background(BG)
       time_label:set{color = RED}
     end
-    if flash_ticks == 7 then alarm() end
-    if flash_ticks >= 13 then stop_flash() end
   end)
 end
 
 local function reset()
-  stop_flash()
-  sound.stop()
+  stop_alerts()
   done = false
   running = false
-  total = PRESETS[preset]
   left = total
   last_sec = -1
   last_permille = -1
@@ -134,7 +129,6 @@ local function reset()
   time_label:set{color = PALE}
   state_label:set{text = "TAP TO START"}
   paint()
-  paint_buttons()
 end
 
 local function toggle()
@@ -154,18 +148,28 @@ local function toggle()
   end
 end
 
-for i, name in ipairs(NAMES) do
-  buttons[i] = ui.button{
-    text = name, x = (i - 2) * 92, y = 108, w = 80, h = 52, size = 20,
-    color = BTN, text_color = PALE, radius = 26,
-    on_tap = function()
-      if done then return end
-      preset = i
-      store.set("preset", i)
-      reset()
-    end,
-  }
+local function adjust(dir)
+  if done then return end
+  local t = total + dir * 60
+  if t < 60 then t = 60 end
+  if t > 3600 then t = 3600 end
+  if t == total then return end
+  total = t
+  store.set("total", total)
+  sound.effect("select", {volume = 25})
+  reset()
 end
+
+ui.button{
+  text = "-", x = -152, y = -12, w = 64, h = 64, size = 28,
+  color = BTN, text_color = PALE, radius = 32,
+  on_tap = function() adjust(-1) end,
+}
+ui.button{
+  text = "+", x = 152, y = -12, w = 64, h = 64, size = 28,
+  color = BTN, text_color = PALE, radius = 32,
+  on_tap = function() adjust(1) end,
+}
 
 ui.on_tap(function(x, y) toggle() end)
 
@@ -181,4 +185,4 @@ ui.every(100, function()
 end)
 
 reset()
-print("timer ready, preset " .. NAMES[preset])
+print("timer ready, set " .. fmt(total))

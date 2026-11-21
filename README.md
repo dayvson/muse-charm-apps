@@ -21,9 +21,9 @@ free for progress rings and other edge displays.
   canvas: the phase computed from the date, with the phase name,
   percent lit, moon age and the next full or new moon.
 
-- [Horoscope](apps/horoscope/) — the 12 signs on one screen; tap
-  yours for the day's message, a lucky number, colour and mood,
-  picked from the sign and the date and remembered for next time.
+- [Horoscope](apps/horoscope/) — swipe through the 12 signs, one
+  per screen: left-aligned text and the day's message on the left,
+  a round medallion with the sign's glyph on the right.
 
 ## How an app runs
 

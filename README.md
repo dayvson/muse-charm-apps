@@ -13,6 +13,10 @@ free for progress rings and other edge displays.
   a ring around the rim that is eaten away as time passes, and colours
   that move from green to yellow to red at the end.
 
+- [Paddle Ball](apps/paddle/) — an original brick-breaking game on a
+  canvas: drag to move the paddle, tap to launch, clear 35 bricks,
+  with sound effects and a stored best score.
+
 ## How an app runs
 
 Each app is a Lua program that runs on the device itself, in the

@@ -11,8 +11,11 @@ id `moon`.
 - The phase name (Waxing Gibbous, First Quarter, and so on), the
   percent lit, and the moon's age in days.
 - The next milestone: full moon or new moon, in how many days.
-- The date. It redraws every minute, so it rolls over at midnight;
-  tap to refresh on demand.
+- The date. It redraws every minute, so it rolls over at midnight.
+- Opening the app plays an animated transition: over about 2.4
+  seconds the terminator sweeps from new moon across the cycle to
+  today's phase, with the name and percent counting along, then
+  settles on the exact picture. Tap to replay it.
 
 ## How it works
 

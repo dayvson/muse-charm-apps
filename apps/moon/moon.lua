@@ -1,7 +1,10 @@
 -- Moon Phase: a picture of today's moon, drawn on a canvas.
 -- The phase is computed from the date (synodic month from a known
 -- new moon), and the lit part of the disc is drawn row by row, so
--- the picture is exact for the day. Tap to refresh.
+-- the picture is exact for the day. Opening the app plays an
+-- animated transition: the terminator sweeps from new moon across
+-- the cycle to today's phase in about two and a half seconds.
+-- Tap to replay it.
 
 local BG = 0x07070C
 local LIT = 0xE9E2CE
@@ -22,30 +25,26 @@ local MONTHS = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
 local WDAYS = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
 
 local CX, CY, R = 200, 166, 98
+local ANIM_LEN = 2.4 -- seconds
 
-local c = ui.canvas{
-  w = 400, h = 400, color = BG,
-  on_touch = function(kind, x, y) if kind == "down" then draw() end end,
-}
+local anim_t0 = nil
+local anim_to = 0
 
-local function phase()
-  local age = ((time.now() - NEW_MOON) / 86400) % SYNODIC
-  local theta = 2 * math.pi * age / SYNODIC
-  local illum = math.floor((1 - math.cos(theta)) / 2 * 100 + 0.5)
-  local idx = math.floor(age / SYNODIC * 8 + 0.5) % 8 + 1
-  return age, theta, illum, NAMES[idx]
+local function today_age()
+  return ((time.now() - NEW_MOON) / 86400) % SYNODIC
 end
 
-function draw()
-  local age, theta, illum, name = phase()
+local function render(age)
+  local theta = 2 * math.pi * age / SYNODIC
+  local illum = math.floor((1 - math.cos(theta)) / 2 * 100 + 0.5)
+  local name = NAMES[math.floor(age / SYNODIC * 8 + 0.5) % 8 + 1]
   local cos_t = math.cos(theta)
   local waxing = age < SYNODIC / 2
 
   c:clear(BG)
 
   -- stars, seeded by the day so the sky is stable all day
-  local seed = math.floor(time.now() / 86400)
-  local s = seed * 1103515245 + 12345
+  local s = math.floor(time.now() / 86400) * 1103515245 + 12345
   local function rnd()
     s = (s * 1103515245 + 12345) % 2147483648
     return s / 2147483648
@@ -93,8 +92,39 @@ function draw()
   if not time.synced() then
     c:text("clock not synced yet", 200, 386, 0x55566E, 14, "center")
   end
-  print("moon drawn: " .. name .. ", " .. illum .. "% lit")
+  return name, illum
 end
 
-draw()
-ui.every(60000, function() draw() end)
+local function play()
+  anim_to = today_age()
+  anim_t0 = time.now()
+end
+
+c = ui.canvas{
+  w = 400, h = 400, color = BG,
+  on_touch = function(kind, x, y) if kind == "down" then play() end end,
+}
+
+local function ease(p)
+  if p < 0.5 then return 2 * p * p end
+  return 1 - ((-2 * p + 2) ^ 2) / 2
+end
+
+ui.every(33, function()
+  if not anim_t0 then return end
+  local p = (time.now() - anim_t0) / ANIM_LEN
+  if p >= 1 then
+    anim_t0 = nil
+    local name, illum = render(anim_to)
+    print("moon settled: " .. name .. ", " .. illum .. "% lit")
+  else
+    render(anim_to * ease(p))
+  end
+end)
+
+ui.every(60000, function()
+  if not anim_t0 then render(today_age()) end
+end)
+
+play()
+print("moon ready, transition playing")

@@ -28,3 +28,10 @@ pixel rows at a time on a 400x400 canvas.
 One sizing note: a full-screen 466x466 canvas does not fit the
 gadget's graphics memory (the install is refused), so the canvas is
 400x400, the same size the Paddle Ball game uses.
+
+## Icon
+
+`icon.lua` holds a 16x16 crescent in the app's pale cream, drawn
+as a gfx.sprite. The launcher tile itself is drawn by the gadget
+(app colour plus the name's letters); the install API has no icon
+field yet, so the artwork is ready for the day it does.

@@ -20,3 +20,11 @@ closers, combined by a hash of the sign and the date. Every sign
 gets its own message, it stays the same all day, and it changes
 overnight (1,728 combinations). No network, no feed, just the date
 and the sign.
+
+## Icon
+
+`icon.lua` holds a 16x16 zodiac wheel (ring, spokes and hub) in
+light violet, drawn as a gfx.sprite. The launcher tile itself is
+drawn by the gadget (app colour plus the name's letters); the
+install API has no icon field yet, so the artwork is ready for
+the day it does.

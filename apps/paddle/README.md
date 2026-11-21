@@ -28,3 +28,10 @@ One 400x400 canvas redrawn every 33 ms (about 30 fps). The ball
 moves in two sub-steps per frame so it cannot tunnel through bricks
 at high speed, and brick bounces reflect off the side the ball
 actually came from.
+
+## Icon
+
+`icon.lua` holds a 16x16 paddle and ball in the game's colours,
+drawn as a gfx.sprite. The launcher tile itself is drawn by the
+gadget (app colour plus the name's letters); the install API has
+no icon field yet, so the artwork is ready for the day it does.

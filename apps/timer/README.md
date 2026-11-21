@@ -32,3 +32,10 @@ stops it.
 Muse installs it with `luapp.install` (id `timer`, name "Timer",
 colour 0x34C759), which compiles, saves and opens it on the gadget.
 Reinstalling with the same id updates it.
+
+## Icon
+
+`icon.lua` holds a 16x16 clock in the app's green, drawn as a
+gfx.sprite. The launcher tile itself is drawn by the gadget (app
+colour plus the name's letters); the install API has no icon
+field yet, so the artwork is ready for the day it does.

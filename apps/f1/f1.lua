@@ -443,15 +443,15 @@ end
 local function draw_race()
   local disp = (after_mode and after) or race
   c:text(after_mode and "THE ONE AFTER" or "NEXT RACE",
-         176, 14, LAV, 14, "center")
+         176, -1, LAV, 14, "center")
   if not disp then
     c:text("No race data yet", 176, 150, PALE, 20, "center")
     c:text("check your connection", 176, 182, LAV, 14, "center")
     return
   end
   local head = disp.name:gsub(" Grand Prix$", "")
-  c:text(head, 176, 40, PALE, 44, "center")
-  c:text("GRAND PRIX", 176, 98, GOLD, 18, "center")
+  c:text(head, 176, 25, PALE, 44, "center")
+  c:text("GRAND PRIX", 176, 83, GOLD, 18, "center")
   draw_segs(disp.epoch)
   draw_outline(disp.cid)
   c:text(race_local_parts(disp.epoch), 176, 278, PALE, 20, "center")

@@ -32,8 +32,19 @@ touch, timers, HTTP and JSON, per-app storage, PNG and JPEG images, pixel-art
 sprites, a drawing canvas for games, and a 4-channel synth. Up to 9 apps, 64 KB
 of source each, run one at a time in a sandbox on their own task.
 
-**Apps by Muse.** [`apps/`](apps/) holds the Lua apps Muse built this way:
-Timer, Paddle Ball, Moon Phase, Horoscope, Converter, F1 and Weather.
+**Apps by Muse.** These Lua apps were written by Muse and deployed to the board
+through the launcher, with no firmware change. Each folder in [`apps/`](apps/) has
+the source and a README:
+
+| | |
+|---|---|
+| [**Timer**](apps/timer/) | A countdown timer with plus and minus buttons and a ring around the rim that is eaten away as time passes, turning from green to yellow to red, with an alarm tune at zero. |
+| [**Paddle Ball**](apps/paddle/) | An original brick-breaking game on a canvas: drag to move the paddle, tap to launch, clear 35 bricks, with sound effects and a stored best score. |
+| [**Moon Phase**](apps/moon/) | Today's moon drawn on a canvas: the phase computed from the date, with the phase name, percent lit, moon age and the next full or new moon. |
+| [**Horoscope**](apps/horoscope/) | A zodiac wheel for the round screen: swipe and the wheel turns your sign to the top, with a medallion and the day's message in the middle. |
+| [**Converter**](apps/fx/) | USD, BRL, EUR, GBP and RUB with either side switchable, a keypad for the amount, and live rates from free keyless sources, cached for offline use. |
+| [**F1**](apps/f1/) | Formula 1: the next race with a car lapping a drawn circuit and a countdown ring at the edge, the weekend schedule, the last podium and the championship top 3. |
+| [**Weather**](apps/weather/) | A living sky for Miami, New York, Rio de Janeiro or San Francisco: an animated sun, moon, stars, clouds, rain or snow, a big temperature and the next three hours, from Open-Meteo. |
 
 **Your own avatar, or the default one.** The board can show the SDK's default
 character, or your Muse's real avatar animation made from the clips Muse

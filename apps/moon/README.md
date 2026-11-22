@@ -23,11 +23,13 @@ The phase is computed, not fetched: the moon's age is the time since
 a known new moon (2000-01-06 18:14 UTC) modulo the synodic month
 (29.530588853 days). The lit span of each row of the disc comes from
 the phase angle, the standard terminator-ellipse geometry, drawn two
-pixel rows at a time on a 400x400 canvas.
+pixel rows at a time.
 
-One sizing note: a full-screen 466x466 canvas does not fit the
-gadget's graphics memory (the install is refused), so the canvas is
-400x400, the same size the Paddle Ball game uses.
+One sizing note: the drawing surface is a 176x176 canvas shown at
+zoom 2, a quarter of the memory of the 352 canvas it replaced
+(62 KB instead of 242 KB). A small proxy halves every coordinate
+and size into canvas pixels, so the drawing code still works in
+its 352-wide space.
 
 ## Icon
 

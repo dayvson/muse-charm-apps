@@ -24,7 +24,9 @@ is lost, and win/lose stingers at the end of a level and the game.
 
 ## How it is built
 
-One 400x400 canvas redrawn every 33 ms (about 30 fps). The ball
+One 200x200 canvas shown at zoom 2 (80 KB), redrawn every 33 ms
+(about 30 fps); a small proxy halves the game's 400-wide
+coordinates into canvas pixels and doubles touches back. The ball
 moves in two sub-steps per frame so it cannot tunnel through bricks
 at high speed, and brick bounces reflect off the side the ball
 actually came from.

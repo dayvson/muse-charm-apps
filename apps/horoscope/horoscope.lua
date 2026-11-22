@@ -279,26 +279,62 @@ end
 ui.background(BG) -- the sky colour fills the whole round screen
 
 local down_x = nil
-c = ui.canvas{
-  w = 400, h = 400, color = BG,
-  on_touch = function(kind, x, y)
-    if kind == "down" then
-      down_x = x
-    elseif kind == "up" and down_x then
-      local dx = x - down_x
-      if dx < -40 then
-        change(1)
-      elseif dx > 40 then
-        change(-1)
-      elseif x < 56 then
-        change(-1)
-      elseif x > 344 then
-        change(1)
-      end
-      down_x = nil
+local function handle_touch(kind, x, y)
+  if kind == "down" then
+    down_x = x
+  elseif kind == "up" and down_x then
+    local dx = x - down_x
+    if dx < -40 then
+      change(1)
+    elseif dx > 40 then
+      change(-1)
+    elseif x < 56 then
+      change(-1)
+    elseif x > 344 then
+      change(1)
     end
+    down_x = nil
+  end
+end
+
+-- the drawing surface is a 200x200 canvas shown at zoom 2,
+-- so it fills the screen for a quarter of the memory of a
+-- 400 canvas (80 KB instead of 320 KB); this proxy halves
+-- every coordinate and size into canvas pixels, and touches
+-- are doubled back into the app's 400-wide space
+local raw = ui.canvas{
+  w = 200, h = 200, zoom = 2, color = BG,
+  on_touch = function(kind, x, y)
+    handle_touch(kind, x * 2, y * 2)
   end,
 }
+local function wdt(w)
+  if not w then return w end
+  return math.max(1, math.floor(w / 2 + 0.5))
+end
+local function opts(o)
+  if o and o.width then
+    local n = {}
+    for k, v in pairs(o) do n[k] = v end
+    n.width = wdt(o.width)
+    return n
+  end
+  return o
+end
+c = {}
+function c:clear(col) raw:clear(col) end
+function c:pixel(x, y, col) raw:pixel(x / 2, y / 2, col) end
+function c:line(x1, y1, x2, y2, col, w)
+  raw:line(x1 / 2, y1 / 2, x2 / 2, y2 / 2, col, wdt(w)) end
+function c:circle(x, y, r, col, o)
+  raw:circle(x / 2, y / 2, r / 2, col, opts(o)) end
+function c:triangle(x1, y1, x2, y2, x3, y3, col)
+  raw:triangle(x1 / 2, y1 / 2, x2 / 2, y2 / 2,
+               x3 / 2, y3 / 2, col) end
+function c:arc(x, y, r, a0, sweep, col, w)
+  raw:arc(x / 2, y / 2, r / 2, a0, sweep, col, wdt(w)) end
+function c:text(s, x, y, col, size, align)
+  raw:text(s, x / 2, y / 2, col, wdt(size), align) end
 
 ui.every(33, function()
   if rot ~= rot_target then
@@ -318,3 +354,6 @@ end)
 
 draw()
 print("horoscope ready, on " .. SIGNS[idx][1])
+local gfx_used, gfx_avail = gfx.memory()
+print("horoscope gfx memory: used " .. tostring(gfx_used) ..
+      ", available " .. tostring(gfx_avail))

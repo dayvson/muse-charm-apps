@@ -113,17 +113,50 @@ end
 
 ui.background(BG) -- the playfield colour fills the whole round screen
 
-local c = ui.canvas{
-  w = W, h = H, color = BG,
-  on_touch = function(kind, x, y)
-    if kind == "down" or kind == "move" then
-      target_x = x
-      if kind == "down" then
-        if state == "over" then new_game() else launch() end
-      end
+local function handle_touch(kind, x, y)
+  if kind == "down" or kind == "move" then
+    target_x = x
+    if kind == "down" then
+      if state == "over" then new_game() else launch() end
     end
+  end
+end
+
+-- the drawing surface is a 200x200 canvas shown at zoom 2,
+-- so it fills the screen for a quarter of the memory of a
+-- 400 canvas (80 KB instead of 320 KB); this proxy halves
+-- every coordinate and size into canvas pixels, and touches
+-- are doubled back into the game's 400-wide space
+local raw = ui.canvas{
+  w = 200, h = 200, zoom = 2, color = BG,
+  on_touch = function(kind, x, y)
+    handle_touch(kind, x * 2, y * 2)
   end,
 }
+local function wdt(w)
+  if not w then return w end
+  return math.max(1, math.floor(w / 2 + 0.5))
+end
+local function opts(o)
+  if o and (o.width or o.radius) then
+    local n = {}
+    for k, v in pairs(o) do n[k] = v end
+    if o.width then n.width = wdt(o.width) end
+    if o.radius then n.radius = wdt(o.radius) end
+    return n
+  end
+  return o
+end
+local c = {}
+function c:clear(col) raw:clear(col) end
+function c:line(x1, y1, x2, y2, col, w)
+  raw:line(x1 / 2, y1 / 2, x2 / 2, y2 / 2, col, wdt(w)) end
+function c:rect(x, y, w, h, col, o)
+  raw:rect(x / 2, y / 2, w / 2, h / 2, col, opts(o)) end
+function c:circle(x, y, r, col, o)
+  raw:circle(x / 2, y / 2, r / 2, col, opts(o)) end
+function c:text(s, x, y, col, size, align)
+  raw:text(s, x / 2, y / 2, col, wdt(size), align) end
 
 local function step_ball()
   local prev_x, prev_y = bx, by
@@ -226,3 +259,6 @@ end)
 build_bricks()
 reset_ball()
 print("paddle ready, best " .. best)
+local gfx_used, gfx_avail = gfx.memory()
+print("paddle gfx memory: used " .. tostring(gfx_used) ..
+      ", available " .. tostring(gfx_avail))

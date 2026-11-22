@@ -113,10 +113,38 @@ end
 
 ui.background(BG) -- the sky colour fills the whole round screen
 
-c = ui.canvas{
-  w = 352, h = 352, color = BG,
+-- the drawing surface is a 176x176 canvas shown at zoom 2,
+-- so it fills the screen for a quarter of the memory of a
+-- 352 canvas (62 KB instead of 242 KB); this proxy halves
+-- every coordinate and size into canvas pixels
+local raw = ui.canvas{
+  w = 176, h = 176, zoom = 2, color = BG,
   on_touch = function(kind, x, y) if kind == "down" then play() end end,
 }
+local function wdt(w)
+  if not w then return w end
+  return math.max(1, math.floor(w / 2 + 0.5))
+end
+local function opts(o)
+  if o and o.width then
+    local n = {}
+    for k, v in pairs(o) do n[k] = v end
+    n.width = wdt(o.width)
+    return n
+  end
+  return o
+end
+c = {}
+function c:clear(col) raw:clear(col) end
+function c:circle(x, y, r, col, o)
+  raw:circle(x / 2, y / 2, r / 2, col, opts(o)) end
+function c:pixel(x, y, col) raw:pixel(x / 2, y / 2, col) end
+function c:line(x1, y1, x2, y2, col, w)
+  raw:line(x1 / 2, y1 / 2, x2 / 2, y2 / 2, col, wdt(w)) end
+function c:arc(x, y, r, a0, sweep, col, w)
+  raw:arc(x / 2, y / 2, r / 2, a0, sweep, col, wdt(w)) end
+function c:text(s, x, y, col, size, align)
+  raw:text(s, x / 2, y / 2, col, wdt(size), align) end
 
 local function ease(p)
   if p < 0.5 then return 2 * p * p end
@@ -141,3 +169,6 @@ end)
 
 play()
 print("moon ready, transition playing")
+local gfx_used, gfx_avail = gfx.memory()
+print("moon gfx memory: used " .. tostring(gfx_used) ..
+      ", available " .. tostring(gfx_avail))

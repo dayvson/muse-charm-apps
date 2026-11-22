@@ -71,26 +71,26 @@ local function team_color(team)
   return DIM
 end
 
--- The drawing surface is a 155x155 canvas shown at zoom 3,
--- so it fills the whole 466 screen for a ninth of the
--- memory of a full-size canvas (47 KB instead of 424 KB).
+-- The drawing surface is a 233x233 canvas shown at zoom 2,
+-- so it fills the whole 466 screen for a quarter of the
+-- memory of a full-size canvas (106 KB instead of 424 KB).
 -- All the drawing code works in a 352 box centred on the
 -- screen; this proxy maps it into canvas pixels: the screen
--- coordinate (v + 57), in thirds, with sizes scaled to match.
+-- coordinate (v + 57), halved, with sizes halved to match.
 -- The canvas is created first, before anything else
 -- allocates.
 local touch_fn = nil
 local raw = ui.canvas{
-  w = 155, h = 155, zoom = 3, color = BG,
+  w = 233, h = 233, zoom = 2, color = BG,
   on_touch = function(kind, x, y)
     if touch_fn then touch_fn(kind, x, y) end
   end,
 }
-local function px(v) return (v + 57) / 3 end
-local function half(v) return v / 3 end
+local function px(v) return (v + 57) / 2 end
+local function half(v) return v / 2 end
 local function wdt(w)
   if not w then return w end
-  return math.max(1, math.floor(w / 3 + 0.5))
+  return math.max(1, math.floor(w / 2 + 0.5))
 end
 local function opts(o)
   if o and o.width then
@@ -706,19 +706,19 @@ touch_fn = function(kind, x, y)
   elseif kind == "up" and down_x then
     local dx = x - down_x
     down_x = nil
-    if dx < -13 then
+    if dx < -20 then
       screen = screen % 4 + 1
       after_mode = false
-    elseif dx > 13 then
+    elseif dx > 20 then
       screen = (screen + 2) % 4 + 1
       after_mode = false
-    elseif math.abs(dx) <= 4 then
+    elseif math.abs(dx) <= 6 then
       -- a tap on the circuit (canvas coords: the circuit
-      -- sits around 78, 85 with radius about 43) swaps the
+      -- sits around 117, 128 with radius about 65) swaps the
       -- race screen to the race after the next one, and back
-      local cx, cy = x - 78, y - 85
+      local cx, cy = x - 117, y - 128
       if screen == 1 and after
-         and cx * cx + cy * cy < 43 * 43 then
+         and cx * cx + cy * cy < 65 * 65 then
         after_mode = not after_mode
       else
         screen = screen % 4 + 1

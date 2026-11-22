@@ -565,7 +565,7 @@ local function draw_trophy(x, y)
 end
 
 local function draw_standings()
-  draw_trophy(31, 42)
+  draw_trophy(31, 37)
   c:text("CHAMPIONSHIP", 210, 28, PALE, 24, "center")
   if season then
     c:text(season .. " - after round " .. round, 176, 68, GOLD, 16,
@@ -587,7 +587,7 @@ local function draw_standings()
            i == 1 and GOLD or PALE, 22, "left")
     c:text(d.team .. " - " .. d.pts .. " pts - " .. d.wins ..
            (d.wins == 1 and " win" or " wins"), 84, y + 32,
-           LAV, 17, "left")
+           LAV, 18, "left")
     if i < #top then c:line(16, y + 66, 296, y + 66, DIM, 1) end
   end
 end

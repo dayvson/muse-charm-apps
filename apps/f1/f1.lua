@@ -462,7 +462,8 @@ end
 local function draw_schedule()
   c:text("WEEKEND SCHEDULE", 176, 34, LAV, 14, "center")
   if race then
-    local head = race.name:gsub(" Grand Prix$", "")
+    local head, n = race.name:gsub(" Grand Prix$", "")
+    if n > 0 then head = head .. " GP" end
     c:text(head, 176, 54, PALE, 24, "center")
   end
   c:line(96, 88, 256, 88, DIM, 1)
@@ -493,11 +494,9 @@ local function draw_podium()
     c:text("No result yet", 176, 160, PALE, 18, "center")
     return
   end
-  -- the API still calls Interlagos the Brazilian Grand Prix,
-  -- its pre-2021 name; the city is the name fans use now
-  local head = (last.loc and last.loc ~= ""
-                and ascii_fold(last.loc))
-               or last.name:gsub(" Grand Prix$", "")
+  -- the heading is the Grand Prix name itself, shortened
+  -- to GP (Brazilian GP, Las Vegas GP, ...)
+  local head = last.name:gsub(" Grand Prix$", " GP")
   c:text(head, 176, 58, PALE, 22, "center")
   local medals = {GOLD, 0xC0C0C0, 0xCD7F32}
   for i, d in ipairs(last.results) do

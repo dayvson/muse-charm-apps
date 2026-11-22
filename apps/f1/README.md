@@ -32,10 +32,9 @@ where you are.
   is gold with a dot beside it.
 - Last race: the previous Grand Prix and its podium, the
   three finishers in medal colours with their flags and
-  teams. The heading is the host city: the API still calls
-  Interlagos the Brazilian Grand Prix, its pre-2021 name,
-  while the race has officially been the Sao Paulo Grand
-  Prix since 2021, so the screen shows Sao Paulo.
+  teams. The heading is the Grand Prix name shortened to
+  GP, as on the schedule screen (Brazilian GP, Las Vegas
+  GP, ...).
 - Championship: a gold trophy beside a bigger title, then
   the top 3 drivers in the title race. Each row has a bar in
   the team's colour, the driver's flag drawn from their

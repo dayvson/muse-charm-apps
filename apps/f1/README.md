@@ -4,12 +4,14 @@ Formula 1 on the gadget, in the Apps by Muse launcher. Lua
 source: `f1.lua`. Installed on the gadget with id `f1` and
 shown in the launcher as F1.
 
-The app draws on one 233x233 canvas shown at zoom 2, so it
-fills the whole 466 screen for a quarter of the memory of a
-full-size canvas (106 KB instead of 424 KB; the canvas is
-created first, before anything else allocates). All the
-content is drawn in a 352 box centred on the screen and
-mapped into canvas pixels by a small proxy. Swipe or tap to
+The app draws on one full-screen 466x466 canvas (created
+first, before anything else allocates), so the countdown
+segments sit at the true edge of the round screen. All the
+content is drawn in a 352 box centred on the screen, shifted
+into place by a small proxy. At start-up the app prints
+gfx.memory() (used, available, and the largest single block
+that fits) to its logs; while it runs that reads about 434
+KB used with well over 1 MB still free. Swipe or tap to
 move between the four screens; the four dots at the bottom
 show where you are.
 
@@ -37,13 +39,13 @@ show where you are.
   coming up gets a ring around its dot and gold text.
 - Last race: the previous Grand Prix as a podium ceremony:
   three steps, the winner on the tall middle one, each
-  driver over their step with flag, name in the medal
-  colour, and the gap (the winning time for first, plus the
-  grid place when they gained places), the place number on
-  the step front, and the race's fastest lap along the
-  bottom. The heading is the Grand Prix name shortened to
-  GP, as on the schedule screen (Brazilian GP, Las Vegas
-  GP, ...).
+  driver over their step with flag, their three-letter code
+  in the medal colour, and the gap (the winning time for
+  first, plus the grid place when they gained places), the
+  place number on the step front, and the race's fastest
+  lap along the bottom. The heading is the Grand Prix name
+  shortened to GP, as on the schedule screen (Brazilian GP,
+  Las Vegas GP, ...).
 - Championship: a gold trophy beside a bigger title, then
   the top 3 drivers in the title race. Each row has a bar in
   the place colour (gold, silver, bronze), the driver's flag

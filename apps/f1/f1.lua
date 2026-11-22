@@ -71,27 +71,22 @@ local function team_color(team)
   return DIM
 end
 
--- The drawing surface is a 233x233 canvas shown at zoom 2,
--- so it fills the whole 466 screen for a quarter of the
--- memory of a full-size canvas (106 KB instead of 424 KB).
--- All the drawing code works in a 352 box centred on the
--- screen; this proxy maps it into canvas pixels: the screen
--- coordinate (v + 57), halved, with sizes halved to match.
--- The canvas is created first, before anything else
--- allocates.
+-- The drawing surface is one full-screen 466x466 canvas, so
+-- the countdown segments can sit near the true edge of the
+-- round screen. All the drawing code works in a 352 box
+-- centred on it; this proxy shifts every coordinate by 57
+-- to land there. The canvas is created first, before
+-- anything else allocates.
 local touch_fn = nil
 local raw = ui.canvas{
-  w = 233, h = 233, zoom = 2, color = BG,
+  w = 466, h = 466, color = BG,
   on_touch = function(kind, x, y)
     if touch_fn then touch_fn(kind, x, y) end
   end,
 }
-local function px(v) return (v + 57) / 2 end
-local function half(v) return v / 2 end
-local function wdt(w)
-  if not w then return w end
-  return math.max(1, math.floor(w / 2 + 0.5))
-end
+local function px(v) return v + 57 end
+local function half(v) return v end
+local function wdt(w) return w end
 local function opts(o)
   if o and o.width then
     local n = {}
@@ -562,7 +557,7 @@ local function draw_podium()
   local medals = {GOLD, 0xC0C0C0, 0xA9712F}
   -- the podium itself: second on the left, the winner on
   -- the tall middle step, third on the right. Each driver
-  -- stands over their step with flag, name and the gap (or
+  -- stands over their step with flag, code and the gap (or
   -- the winning time for first, with the grid place when
   -- they gained places), and the place number is on the
   -- step front in the medal colour
@@ -576,14 +571,14 @@ local function draw_podium()
     local d = last.results[col.place]
     if d then
       local med = medals[col.place]
-      draw_flag(col.cx - 22, col.top - 78, d.nat)
-      c:text(d.name, col.cx, col.top - 44, med, 19, "center")
+      draw_flag(col.cx - 22, col.top - 88, d.nat)
+      c:text(d.code, col.cx, col.top - 54, med, 19, "center")
       local sub = short_time(d.time)
       if d.grid and d.grid ~= col.place then
         sub = (sub and (sub .. " ") or "") .. "(P" .. d.grid .. ")"
       end
       if sub then
-        c:text(sub, col.cx, col.top - 20, LAV, 12, "center")
+        c:text(sub, col.cx, col.top - 30, LAV, 12, "center")
       end
       c:rect(col.cx - 43, col.top, 86, floor - col.top, 0x1C1C26)
       c:rect(col.cx - 43, col.top, 86, 5, med)
@@ -706,19 +701,19 @@ touch_fn = function(kind, x, y)
   elseif kind == "up" and down_x then
     local dx = x - down_x
     down_x = nil
-    if dx < -20 then
+    if dx < -40 then
       screen = screen % 4 + 1
       after_mode = false
-    elseif dx > 20 then
+    elseif dx > 40 then
       screen = (screen + 2) % 4 + 1
       after_mode = false
-    elseif math.abs(dx) <= 6 then
-      -- a tap on the circuit (canvas coords: the circuit
-      -- sits around 117, 128 with radius about 65) swaps the
+    elseif math.abs(dx) <= 12 then
+      -- a tap on the circuit (raw screen coords: the circuit
+      -- sits around 233, 255 with radius about 130) swaps the
       -- race screen to the race after the next one, and back
-      local cx, cy = x - 117, y - 128
+      local cx, cy = x - 233, y - 255
       if screen == 1 and after
-         and cx * cx + cy * cy < 65 * 65 then
+         and cx * cx + cy * cy < 130 * 130 then
         after_mode = not after_mode
       else
         screen = screen % 4 + 1
@@ -732,9 +727,10 @@ end
 
 draw()
 print("f1 ready, screen " .. screen .. ", data " .. state)
-local gfx_used, gfx_avail = gfx.memory()
+local gfx_used, gfx_avail, gfx_largest = gfx.memory()
 print("f1 gfx memory: used " .. tostring(gfx_used) ..
-      ", available " .. tostring(gfx_avail))
+      ", available " .. tostring(gfx_avail) ..
+      ", largest " .. tostring(gfx_largest))
 
 local function save_race(r)
   race = r

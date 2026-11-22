@@ -155,6 +155,8 @@ do
   local ln = store.get("lname")
   if ln then
     last = {name = ln, results = {}}
+    local ll = store.get("lloc")
+    if ll and ll ~= "" then last.loc = ll end
     local lr = store.get("lres")
     if lr then
       for code, name, team, nat in
@@ -248,6 +250,20 @@ local function countdown(epoch)
   if days > 0 then return "in " .. days .. "d " .. hrs .. "h" end
   if hrs > 0 then return "in " .. hrs .. "h " .. min .. "m" end
   return "in " .. min .. "m"
+end
+
+-- the gadget fonts are ASCII only: fold accented letters in
+-- names the API returns (Sao Paulo, Autodromo) to plain ones
+local function ascii_fold(s)
+  if not s then return s end
+  s = s:gsub("\195\160", "a"):gsub("\195\161", "a")
+       :gsub("\195\162", "a"):gsub("\195\163", "a")
+       :gsub("\195\168", "e"):gsub("\195\169", "e")
+       :gsub("\195\170", "e"):gsub("\195\173", "i")
+       :gsub("\195\179", "o"):gsub("\195\180", "o")
+       :gsub("\195\186", "u"):gsub("\195\188", "u")
+       :gsub("\195\167", "c"):gsub("\195\177", "n")
+  return s
 end
 
 local function draw_flag(x, y, nat)
@@ -418,8 +434,8 @@ local function draw_segs(epoch)
   local lit = math.ceil(frac * n)
   for i = 0, n - 1 do
     local a = -math.pi / 2 + (i + 0.5) * 2 * math.pi / n
-    local x = 176 + 205 * math.cos(a)
-    local y = 176 + 205 * math.sin(a)
+    local x = 176 + 220 * math.cos(a)
+    local y = 176 + 220 * math.sin(a)
     c:rect(x - 3, y - 3, 6, 6, (i < lit) and col or 0x1C1C24)
   end
 end
@@ -427,15 +443,15 @@ end
 local function draw_race()
   local disp = (after_mode and after) or race
   c:text(after_mode and "THE ONE AFTER" or "NEXT RACE",
-         176, 42, LAV, 13, "center")
+         176, 32, LAV, 13, "center")
   if not disp then
     c:text("No race data yet", 176, 150, PALE, 20, "center")
     c:text("check your connection", 176, 182, LAV, 14, "center")
     return
   end
   local head = disp.name:gsub(" Grand Prix$", "")
-  c:text(head, 176, 58, PALE, 30, "center")
-  c:text("GRAND PRIX", 176, 90, GOLD, 15, "center")
+  c:text(head, 176, 48, PALE, 30, "center")
+  c:text("GRAND PRIX", 176, 80, GOLD, 15, "center")
   draw_segs(disp.epoch)
   draw_outline(disp.cid)
   c:text(race_local_parts(disp.epoch), 176, 268, PALE, 17, "center")
@@ -444,11 +460,12 @@ local function draw_race()
 end
 
 local function draw_schedule()
-  c:text("WEEKEND SCHEDULE", 176, 40, LAV, 13, "center")
+  c:text("WEEKEND SCHEDULE", 176, 34, LAV, 14, "center")
   if race then
     local head = race.name:gsub(" Grand Prix$", "")
-    c:text(head, 176, 58, PALE, 22, "center")
+    c:text(head, 176, 54, PALE, 24, "center")
   end
+  c:line(96, 88, 256, 88, DIM, 1)
   if #sched == 0 then
     c:text("No schedule yet", 176, 160, PALE, 18, "center")
     return
@@ -459,11 +476,14 @@ local function draw_schedule()
     if s.epoch > now and not next_i then next_i = i end
   end
   for i, s in ipairs(sched) do
-    local y = 104 + (i - 1) * 32
+    local y = 102 + (i - 1) * 38
     local col = (s.epoch <= now) and DIM
                 or ((i == next_i) and GOLD or PALE)
-    c:text(s.label, 66, y, col, 16, "left")
-    c:text(fmt_short(s.epoch), 286, y, col, 16, "right")
+    if i == next_i then
+      c:circle(50, y + 9, 4, GOLD, {fill = true})
+    end
+    c:text(s.label, 66, y, col, 19, "left")
+    c:text(fmt_short(s.epoch), 286, y, col, 19, "right")
   end
 end
 
@@ -473,7 +493,11 @@ local function draw_podium()
     c:text("No result yet", 176, 160, PALE, 18, "center")
     return
   end
-  local head = last.name:gsub(" Grand Prix$", "")
+  -- the API still calls Interlagos the Brazilian Grand Prix,
+  -- its pre-2021 name; the city is the name fans use now
+  local head = (last.loc and last.loc ~= ""
+                and ascii_fold(last.loc))
+               or last.name:gsub(" Grand Prix$", "")
   c:text(head, 176, 58, PALE, 22, "center")
   local medals = {GOLD, 0xC0C0C0, 0xCD7F32}
   for i, d in ipairs(last.results) do
@@ -514,10 +538,22 @@ local function draw_lights()
   end
 end
 
+-- a small gold trophy, drawn from shapes
+local function draw_trophy(x, y)
+  c:rect(x, y, 26, 4, GOLD)
+  c:triangle(x, y + 4, x + 26, y + 4, x + 19, y + 19, GOLD)
+  c:triangle(x, y + 4, x + 19, y + 19, x + 7, y + 19, GOLD)
+  c:circle(x - 3, y + 9, 5, GOLD, {fill = false, width = 2})
+  c:circle(x + 29, y + 9, 5, GOLD, {fill = false, width = 2})
+  c:rect(x + 11, y + 19, 4, 6, GOLD)
+  c:rect(x + 5, y + 25, 16, 3, GOLD)
+end
+
 local function draw_standings()
-  c:text("CHAMPIONSHIP", 176, 40, LAV, 13, "center")
+  draw_trophy(84, 26)
+  c:text("CHAMPIONSHIP", 196, 30, PALE, 20, "center")
   if season then
-    c:text(season .. " - after round " .. round, 176, 60, GOLD, 14,
+    c:text(season .. " - after round " .. round, 176, 64, GOLD, 14,
            "center")
   end
   if #top == 0 then
@@ -549,7 +585,7 @@ local function draw()
   elseif screen == 3 then draw_podium()
   else draw_standings() end
   for i = 1, 4 do
-    c:circle(146 + (i - 1) * 20, 306, 3,
+    c:circle(146 + (i - 1) * 20, 330, 3,
              i == screen and PALE or DIM, {fill = true})
   end
 end
@@ -647,7 +683,8 @@ local function fetch_last()
       local r = data and data.MRData and data.MRData.RaceTable
                 and data.MRData.RaceTable.Races[1]
       if r and r.Results then
-        last = {name = r.raceName, results = {}}
+        last = {name = r.raceName,
+                loc = r.Circuit.Location.locality, results = {}}
         local str = ""
         for i = 1, math.min(3, #r.Results) do
           local e = r.Results[i]
@@ -661,6 +698,7 @@ local function fetch_last()
                 "|" .. (d.nat or "")
         end
         store.set("lname", last.name)
+        store.set("lloc", last.loc or "")
         store.set("lres", str)
         draw()
         print("f1 last race: " .. r.raceName)

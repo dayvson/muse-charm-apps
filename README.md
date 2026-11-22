@@ -29,10 +29,16 @@ free for progress rings and other edge displays.
   side switchable, a keypad for the amount, and live rates from
   free keyless sources, cached for offline use.
 
-- [F1](apps/f1/) — Formula 1 inside a checkered ring: the
-  next race with a lapping car on a drawn circuit outline, the
-  weekend schedule, the last race's podium and the
-  championship top 3, from a free keyless API.
+- [F1](apps/f1/) — Formula 1: the next race with a lapping
+  car on a drawn circuit outline and a countdown ring at the
+  edge of the screen, the weekend schedule, the last race's
+  podium and the championship top 3, from a free keyless API.
+
+- [Weather](apps/weather/) — a living sky for one city at a
+  time (Miami, New York, Rio de Janeiro, San Francisco; tap
+  the city name to switch): a gradient sky with an animated
+  sun, moon, stars, clouds, rain or snow, a big temperature
+  and a glass panel with the next six hours, from Open-Meteo.
 
 ## How an app runs
 

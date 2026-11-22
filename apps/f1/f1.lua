@@ -513,14 +513,16 @@ local function draw_podium()
   -- size and height as the race screen's title
   local head = last.name:gsub(" Grand Prix$", " GP")
   c:text(head, 176, 44, PALE, 36, "center")
-  local medals = {GOLD, 0xC0C0C0, 0xCD7F32}
+  -- names and bars in the place colours, the bronze a
+  -- little dimmed so it sits behind gold and silver
+  local medals = {GOLD, 0xC0C0C0, 0xA9712F}
   for i, d in ipairs(last.results) do
     local y = 112 + (i - 1) * 64
-    c:rect(40, y, 5, 46, team_color(d.team))
-    draw_flag(52, y + 6, d.nat)
-    c:text(i .. ". " .. d.code .. " - " .. d.name, 106, y + 2,
+    c:rect(30, y, 5, 46, medals[i])
+    draw_flag(42, y + 6, d.nat)
+    c:text(i .. ". " .. d.code .. " - " .. d.name, 96, y + 2,
            medals[i], 22, "left")
-    c:text(d.team, 106, y + 31, LAV, 15, "left")
+    c:text(d.team, 96, y + 31, LAV, 15, "left")
   end
 end
 
@@ -562,7 +564,7 @@ local function draw_trophy(x, y)
 end
 
 local function draw_standings()
-  draw_trophy(56, 24)
+  draw_trophy(46, 24)
   c:text("CHAMPIONSHIP", 210, 28, PALE, 24, "center")
   if season then
     c:text(season .. " - after round " .. round, 176, 68, GOLD, 16,
@@ -573,18 +575,19 @@ local function draw_standings()
     return
   end
   -- the bar beside each flag carries the place colour:
-  -- gold, silver, bronze for first, second, third
-  local medals = {GOLD, 0xC0C0C0, 0xCD7F32}
+  -- gold, silver, bronze for first, second, third, the
+  -- bronze a little dimmed like on the podium screen
+  local medals = {GOLD, 0xC0C0C0, 0xA9712F}
   for i, d in ipairs(top) do
     local y = 108 + (i - 1) * 76
-    c:rect(36, y, 5, 52, medals[i])
-    draw_flag(48, y + 8, d.nat)
-    c:text(i .. ". " .. d.code .. " - " .. d.name, 104, y + 2,
+    c:rect(26, y, 5, 52, medals[i])
+    draw_flag(38, y + 8, d.nat)
+    c:text(i .. ". " .. d.code .. " - " .. d.name, 94, y + 2,
            i == 1 and GOLD or PALE, 22, "left")
     c:text(d.team .. " - " .. d.pts .. " pts - " .. d.wins ..
-           (d.wins == 1 and " win" or " wins"), 104, y + 32,
+           (d.wins == 1 and " win" or " wins"), 94, y + 32,
            LAV, 18, "left")
-    if i < #top then c:line(36, y + 66, 316, y + 66, DIM, 1) end
+    if i < #top then c:line(26, y + 66, 306, y + 66, DIM, 1) end
   end
 end
 
@@ -599,7 +602,7 @@ local function draw()
   elseif screen == 3 then draw_podium()
   else draw_standings() end
   for i = 1, 4 do
-    c:circle(146 + (i - 1) * 20, 336, 3,
+    c:circle(146 + (i - 1) * 20, 351, 3,
              i == screen and PALE or DIM, {fill = true})
   end
 end

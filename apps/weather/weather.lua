@@ -355,16 +355,15 @@ local function draw()
            15, "center")
     c:text("L: " .. math.floor(w.lo + 0.5), 382, 206, SOFT,
            15, "center")
-    c:text("Wind " .. math.floor(w.wind + 0.5) .. " mph", 84,
+    c:text("W: " .. math.floor(w.wind + 0.5) .. " mph", 84,
            176, SOFT, 13, "center")
-    c:text("Humidity " .. w.hum .. "%", 84, 206, SOFT, 13,
+    c:text("Hum: " .. w.hum .. "%", 84, 206, SOFT, 13,
            "center")
     -- the glass hourly panel, kept inside the round face
     -- and shifted up: only the next three hours, so each
     -- column is wide and the type can breathe
     c:rect(83, 306, 300, 88, 0x0B1D38, {opacity = 105,
            radius = 16})
-    c:line(99, 336, 367, 336, WHITE, 1)
     local n = math.min(3, #w.hours)
     for i = 1, n do
       local cx = 133 + (i - 1) * 100

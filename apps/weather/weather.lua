@@ -341,7 +341,6 @@ local function draw()
   -- content, sliding up into place after a city change
   yoff = slide * slide * 90
   c:text(city.name, 233, 58, WHITE, 36, "center")
-  c:text(city.code, 233, 102, SOFT, 15, "center")
   if wx then
     local t = math.floor(w.temp + 0.5)
     local digits = #tostring(math.abs(t))
@@ -349,9 +348,17 @@ local function draw()
     c:text(tostring(t), 233 - 16, 128, WHITE, 118, "center")
     c:circle(233 - 16 + tw / 2 + 16, 146, 10, WHITE,
              {fill = false, width = 5})
-    c:text(LABELS[w.code] or "", 233, 262, WHITE, 21, "center")
-    c:text("H:" .. math.floor(w.hi + 0.5) .. "   L:" ..
-           math.floor(w.lo + 0.5), 233, 292, SOFT, 19, "center")
+    c:text(LABELS[w.code] or "", 233, 237, WHITE, 21, "center")
+    -- high and low stacked on the right of the temperature,
+    -- wind and humidity stacked on the left
+    c:text("H: " .. math.floor(w.hi + 0.5), 382, 176, WHITE,
+           15, "center")
+    c:text("L: " .. math.floor(w.lo + 0.5), 382, 206, SOFT,
+           15, "center")
+    c:text("Wind " .. math.floor(w.wind + 0.5) .. " mph", 84,
+           176, SOFT, 13, "center")
+    c:text("Humidity " .. w.hum .. "%", 84, 206, SOFT, 13,
+           "center")
     -- the glass hourly panel, kept inside the round face
     -- and shifted up: only the next three hours, so each
     -- column is wide and the type can breathe
@@ -362,14 +369,11 @@ local function draw()
     for i = 1, n do
       local cx = 133 + (i - 1) * 100
       local h = w.hours[i]
-      c:text(i == 1 and "Now" or hour_label(h.hour), cx, 314,
+      c:text(hour_label(h.hour), cx, 314,
              SOFT, 13, "center")
       draw_glyph(group_of(h.code), cx, 356, not w.is_day)
       c:text(tostring(h.temp), cx, 368, WHITE, 18, "center")
     end
-    c:text("Wind " .. math.floor(w.wind + 0.5) .. " mph, " ..
-           "Humidity " .. w.hum .. "%", 233, 404, SOFT, 12,
-           "center")
   else
     c:text("Loading...", 233, 220, SOFT, 20, "center")
   end
@@ -422,14 +426,14 @@ local function fetch(city)
       lo = F(d.daily.temperature_2m_min[1]),
       hours = {},
     }
-    -- the next three hours, starting at the current hour
+    -- the next three hours after the current one
     local cur = d.current.time:sub(1, 13)
     local start = nil
     for i, t in ipairs(d.hourly.time) do
       if t:sub(1, 13) == cur then start = i break end
     end
     if start then
-      for i = start, math.min(start + 2, #d.hourly.time) do
+      for i = start + 1, math.min(start + 3, #d.hourly.time) do
         w.hours[#w.hours + 1] = {
           hour = tonumber(d.hourly.time[i]:sub(12, 13)),
           temp = F(d.hourly.temperature_2m[i]),

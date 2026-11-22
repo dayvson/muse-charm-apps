@@ -32,9 +32,13 @@ where you are.
   kind (practice lavender, sprint blue, qualifying gold, the
   race red). Sessions already over are dimmed; the next one
   coming up gets a ring around its dot and gold text.
-- Last race: the previous Grand Prix and its podium, the
-  three finishers in medal colours with their flags and
-  teams. The heading is the Grand Prix name shortened to
+- Last race: the previous Grand Prix as a podium ceremony:
+  three steps, the winner on the tall middle one, each
+  driver over their step with flag, name in the medal
+  colour, and the gap (the winning time for first, plus the
+  grid place when they gained places), the place number on
+  the step front, and the race's fastest lap along the
+  bottom. The heading is the Grand Prix name shortened to
   GP, as on the schedule screen (Brazilian GP, Las Vegas
   GP, ...).
 - Championship: a gold trophy beside a bigger title, then

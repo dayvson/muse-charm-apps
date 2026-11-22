@@ -157,12 +157,34 @@ do
     last = {name = ln, results = {}}
     local ll = store.get("lloc")
     if ll and ll ~= "" then last.loc = ll end
+    local function split(s, sep)
+      local t, pos = {}, 1
+      while true do
+        local i = s:find(sep, pos, true)
+        if not i then t[#t + 1] = s:sub(pos) break end
+        t[#t + 1] = s:sub(pos, i - 1)
+        pos = i + 1
+      end
+      return t
+    end
     local lr = store.get("lres")
     if lr then
-      for code, name, team, nat in
-          lr:gmatch("([^|;]+)|([^|;]+)|([^|;]+)|([^;]*)") do
-        last.results[#last.results + 1] =
-          {code = code, name = name, team = team, nat = nat}
+      for entry in lr:gmatch("[^;]+") do
+        local f = split(entry, "|")
+        if f[1] then
+          last.results[#last.results + 1] = {
+            code = f[1], name = f[2], team = f[3], nat = f[4],
+            time = (f[5] and f[5] ~= "-") and f[5] or nil,
+            grid = tonumber(f[6]),
+          }
+        end
+      end
+    end
+    local lf = store.get("lfl")
+    if lf and lf ~= "" then
+      local f = split(lf, "|")
+      if f[1] then
+        last.fl = {code = f[1], time = f[2], lap = f[3]}
       end
     end
   end
@@ -502,6 +524,13 @@ local function draw_schedule()
   end
 end
 
+-- race times come with thousandths (1:35:23.504, +14.602);
+-- one decimal reads better at gadget sizes
+local function short_time(s)
+  if not s then return nil end
+  return (s:gsub("%.(%d)%d%d$", ".%1"))
+end
+
 local function draw_podium()
   c:text("LAST RACE", 176, 26, LAV, 13, "center")
   if not last or #last.results == 0 then
@@ -513,16 +542,42 @@ local function draw_podium()
   -- size and height as the race screen's title
   local head = last.name:gsub(" Grand Prix$", " GP")
   c:text(head, 176, 44, PALE, 36, "center")
-  -- names and bars in the place colours, the bronze a
-  -- little dimmed so it sits behind gold and silver
   local medals = {GOLD, 0xC0C0C0, 0xA9712F}
-  for i, d in ipairs(last.results) do
-    local y = 112 + (i - 1) * 64
-    c:rect(30, y, 5, 46, medals[i])
-    draw_flag(42, y + 6, d.nat)
-    c:text(i .. ". " .. d.code .. " - " .. d.name, 96, y + 2,
-           medals[i], 22, "left")
-    c:text(d.team, 96, y + 31, LAV, 15, "left")
+  -- the podium itself: second on the left, the winner on
+  -- the tall middle step, third on the right. Each driver
+  -- stands over their step with flag, name and the gap (or
+  -- the winning time for first, with the grid place when
+  -- they gained places), and the place number is on the
+  -- step front in the medal colour
+  local cols = {
+    {place = 2, cx = 91, top = 228},
+    {place = 1, cx = 176, top = 196},
+    {place = 3, cx = 262, top = 250},
+  }
+  local floor = 306
+  for _, col in ipairs(cols) do
+    local d = last.results[col.place]
+    if d then
+      local med = medals[col.place]
+      draw_flag(col.cx - 22, col.top - 78, d.nat)
+      c:text(d.name, col.cx, col.top - 44, med, 19, "center")
+      local sub = short_time(d.time)
+      if d.grid and d.grid ~= col.place then
+        sub = (sub and (sub .. " ") or "") .. "(P" .. d.grid .. ")"
+      end
+      if sub then
+        c:text(sub, col.cx, col.top - 20, LAV, 12, "center")
+      end
+      c:rect(col.cx - 43, col.top, 86, floor - col.top, 0x1C1C26)
+      c:rect(col.cx - 43, col.top, 86, 5, med)
+      c:text(tostring(col.place), col.cx,
+             col.top + (floor - col.top) / 2 - 14, med, 28, "center")
+    end
+  end
+  c:line(40, floor, 312, floor, DIM, 2)
+  if last.fl then
+    c:text("FASTEST LAP - " .. last.fl.code .. " " .. last.fl.time ..
+           " - LAP " .. last.fl.lap, 176, 318, GOLD, 13, "center")
   end
 end
 
@@ -709,15 +764,29 @@ local function fetch_last()
           local d = {code = e.Driver.code,
                      name = e.Driver.familyName,
                      team = e.Constructor.name,
-                     nat = e.Driver.nationality}
+                     nat = e.Driver.nationality,
+                     time = e.Time and e.Time.time,
+                     grid = tonumber(e.grid)}
           last.results[i] = d
           if i > 1 then str = str .. ";" end
           str = str .. d.code .. "|" .. d.name .. "|" .. d.team ..
-                "|" .. (d.nat or "")
+                "|" .. (d.nat or "") .. "|" .. (d.time or "-") ..
+                "|" .. (d.grid or "-")
+        end
+        -- the fastest lap of the race, whoever set it
+        for _, e in ipairs(r.Results) do
+          if e.FastestLap and e.FastestLap.rank == "1" then
+            last.fl = {code = e.Driver.code,
+                       time = e.FastestLap.Time.time,
+                       lap = e.FastestLap.lap}
+          end
         end
         store.set("lname", last.name)
         store.set("lloc", last.loc or "")
         store.set("lres", str)
+        store.set("lfl", last.fl and
+          (last.fl.code .. "|" .. last.fl.time .. "|" ..
+           last.fl.lap) or "")
         draw()
         print("f1 last race: " .. r.raceName)
         fetch_after()

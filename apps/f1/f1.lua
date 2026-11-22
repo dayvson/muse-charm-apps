@@ -267,7 +267,7 @@ local function ascii_fold(s)
 end
 
 local function draw_flag(x, y, nat)
-  local w, h = 38, 25
+  local w, h = 44, 29
   local spec = FLAGS[nat]
   c:rect(x - 1, y - 1, w + 2, h + 2, 0x000000)
   if not spec then
@@ -292,29 +292,29 @@ local function draw_flag(x, y, nat)
     c:rect(x, y, w, h, 0x012169)
     c:line(x, y, x + w, y + h, 0xF4F5F0, 3)
     c:line(x + w, y, x, y + h, 0xF4F5F0, 3)
-    c:rect(x + w / 2 - 5, y, 10, h, 0xF4F5F0)
-    c:rect(x, y + h / 2 - 4, w, 8, 0xF4F5F0)
-    c:rect(x + w / 2 - 3, y, 6, h, 0xC8102E)
-    c:rect(x, y + h / 2 - 2, w, 5, 0xC8102E)
+    c:rect(x + w / 2 - 6, y, 12, h, 0xF4F5F0)
+    c:rect(x, y + h / 2 - 5, w, 10, 0xF4F5F0)
+    c:rect(x + w / 2 - 4, y, 7, h, 0xC8102E)
+    c:rect(x, y + h / 2 - 3, w, 6, 0xC8102E)
   elseif t == "fi" then
     c:rect(x, y, w, h, 0xF4F5F0)
-    c:rect(x + 10, y, 6, h, 0x002F6C)
-    c:rect(x, y + 9, w, 6, 0x002F6C)
+    c:rect(x + 12, y, 7, h, 0x002F6C)
+    c:rect(x, y + 11, w, 7, 0x002F6C)
   elseif t == "dk" then
     c:rect(x, y, w, h, 0xC8102E)
-    c:rect(x + 10, y, 5, h, 0xF4F5F0)
-    c:rect(x, y + 10, w, 5, 0xF4F5F0)
+    c:rect(x + 12, y, 6, h, 0xF4F5F0)
+    c:rect(x, y + 12, w, 6, 0xF4F5F0)
   elseif t == "ch" then
     c:rect(x, y, w, h, 0xDA291C)
-    c:rect(x + w / 2 - 3, y + 5, 6, h - 10, 0xF4F5F0)
-    c:rect(x + w / 2 - 8, y + h / 2 - 3, 16, 6, 0xF4F5F0)
+    c:rect(x + w / 2 - 4, y + 6, 7, h - 12, 0xF4F5F0)
+    c:rect(x + w / 2 - 10, y + h / 2 - 4, 20, 7, 0xF4F5F0)
   elseif t == "jp" then
     c:rect(x, y, w, h, 0xF4F5F0)
     c:circle(x + w / 2, y + h / 2, 6, 0xBC002D, {fill = true})
   elseif t == "us" then
     c:rect(x, y, w, h, 0xF4F5F0)
-    for i = 0, 3 do c:rect(x, y + i * 7, w, 4, 0xB22234) end
-    c:rect(x, y, 17, 13, 0x3C3B6E)
+    for i = 0, 3 do c:rect(x, y + i * 8, w, 5, 0xB22234) end
+    c:rect(x, y, 20, 15, 0x3C3B6E)
     c:circle(x + 4, y + 4, 1, 0xF4F5F0, {fill = true})
     c:circle(x + 9, y + 4, 1, 0xF4F5F0, {fill = true})
     c:circle(x + 13, y + 4, 1, 0xF4F5F0, {fill = true})
@@ -322,9 +322,9 @@ local function draw_flag(x, y, nat)
     c:circle(x + 11, y + 9, 1, 0xF4F5F0, {fill = true})
   elseif t == "au" then
     c:rect(x, y, w, h, 0x00247D)
-    c:rect(x, y, 17, 12, 0x012169)
-    c:rect(x + 7, y, 3, 12, 0xF4F5F0)
-    c:rect(x, y + 5, 17, 3, 0xF4F5F0)
+    c:rect(x, y, 20, 14, 0x012169)
+    c:rect(x + 8, y, 4, 14, 0xF4F5F0)
+    c:rect(x, y + 6, 20, 4, 0xF4F5F0)
     c:circle(x + 26, y + 7, 2, 0xF4F5F0, {fill = true})
     c:circle(x + 31, y + 15, 2, 0xF4F5F0, {fill = true})
     c:circle(x + 24, y + 19, 2, 0xF4F5F0, {fill = true})
@@ -343,8 +343,8 @@ local function draw_flag(x, y, nat)
     c:circle(x + w / 2, y + h / 2, 4, 0xFF0000, {fill = true})
   elseif t == "th" then
     c:rect(x, y, w, h, 0xA51931)
-    c:rect(x, y + 4, w, 17, 0xF4F5F0)
-    c:rect(x, y + 8, w, 9, 0x2D2A4A)
+    c:rect(x, y + 5, w, 19, 0xF4F5F0)
+    c:rect(x, y + 10, w, 11, 0x2D2A4A)
   elseif t == "cn" then
     c:rect(x, y, w, h, 0xDE2910)
     c:circle(x + 6, y + 6, 2, 0xFFDE00, {fill = true})
@@ -405,14 +405,14 @@ local function draw_outline(cid)
       c:line(a[1], a[2], b[1], b[2], col, wdt)
     end
   end
-  c:circle(path.pts[1][1], path.pts[1][2], 3, 0xFFFFFF,
+  c:circle(path.pts[1][1], path.pts[1][2], 4, 0xFFFFFF,
            {fill = true})
   for k = 3, 1, -1 do
-    local x, y = point_at(anim_dist - k * 7)
-    c:circle(x, y, 5 - k, TRAIL[k], {fill = true})
+    local x, y = point_at(anim_dist - k * 8)
+    c:circle(x, y, 6 - k, TRAIL[k], {fill = true})
   end
   local hx, hy = point_at(anim_dist)
-  c:circle(hx, hy, 5, CAR, {fill = true})
+  c:circle(hx, hy, 6, CAR, {fill = true})
 end
 
 -- a segmented ring near the edge of the screen: 48 segments,
@@ -443,20 +443,20 @@ end
 local function draw_race()
   local disp = (after_mode and after) or race
   c:text(after_mode and "THE ONE AFTER" or "NEXT RACE",
-         176, 32, LAV, 13, "center")
+         176, 26, LAV, 13, "center")
   if not disp then
     c:text("No race data yet", 176, 150, PALE, 20, "center")
     c:text("check your connection", 176, 182, LAV, 14, "center")
     return
   end
   local head = disp.name:gsub(" Grand Prix$", "")
-  c:text(head, 176, 48, PALE, 30, "center")
-  c:text("GRAND PRIX", 176, 80, GOLD, 15, "center")
+  c:text(head, 176, 44, PALE, 36, "center")
+  c:text("GRAND PRIX", 176, 86, GOLD, 17, "center")
   draw_segs(disp.epoch)
   draw_outline(disp.cid)
-  c:text(race_local_parts(disp.epoch), 176, 268, PALE, 17, "center")
-  c:text(countdown(disp.epoch) .. "  -  " .. state, 176, 292,
-         GOLD, 13, "center")
+  c:text(race_local_parts(disp.epoch), 176, 274, PALE, 20, "center")
+  c:text(countdown(disp.epoch) .. "  -  " .. state, 176, 300,
+         GOLD, 16, "center")
 end
 
 local function draw_schedule()
@@ -489,25 +489,26 @@ local function draw_schedule()
 end
 
 local function draw_podium()
-  c:text("LAST RACE", 176, 40, LAV, 13, "center")
+  c:text("LAST RACE", 176, 26, LAV, 13, "center")
   if not last or #last.results == 0 then
     c:text("No result yet", 176, 160, PALE, 18, "center")
     return
   end
   -- the heading is the Grand Prix name itself, shortened
-  -- to GP (Brazilian GP, Las Vegas GP, ...)
+  -- to GP (Brazilian GP, Las Vegas GP, ...), at the same
+  -- size and height as the race screen's title
   local head = last.name:gsub(" Grand Prix$", " GP")
-  c:text(head, 176, 58, PALE, 22, "center")
+  c:text(head, 176, 44, PALE, 36, "center")
   local medals = {GOLD, 0xC0C0C0, 0xCD7F32}
   for i, d in ipairs(last.results) do
-    local y = 104 + (i - 1) * 56
-    c:rect(44, y, 5, 40, team_color(d.team))
-    draw_flag(56, y + 4, d.nat)
-    c:text(i .. ". " .. d.code .. " - " .. d.name, 104, y + 2,
-           medals[i], 19, "left")
-    c:text(d.team, 104, y + 27, LAV, 13, "left")
+    local y = 112 + (i - 1) * 64
+    c:rect(40, y, 5, 46, team_color(d.team))
+    draw_flag(52, y + 6, d.nat)
+    c:text(i .. ". " .. d.code .. " - " .. d.name, 106, y + 2,
+           medals[i], 22, "left")
+    c:text(d.team, 106, y + 31, LAV, 15, "left")
   end
-  c:text("the podium from the last race", 176, 288, LAV, 13,
+  c:text("the podium from the last race", 176, 296, LAV, 15,
          "center")
 end
 
@@ -539,20 +540,20 @@ end
 
 -- a small gold trophy, drawn from shapes
 local function draw_trophy(x, y)
-  c:rect(x, y, 26, 4, GOLD)
-  c:triangle(x, y + 4, x + 26, y + 4, x + 19, y + 19, GOLD)
-  c:triangle(x, y + 4, x + 19, y + 19, x + 7, y + 19, GOLD)
-  c:circle(x - 3, y + 9, 5, GOLD, {fill = false, width = 2})
-  c:circle(x + 29, y + 9, 5, GOLD, {fill = false, width = 2})
-  c:rect(x + 11, y + 19, 4, 6, GOLD)
-  c:rect(x + 5, y + 25, 16, 3, GOLD)
+  c:rect(x, y, 31, 5, GOLD)
+  c:triangle(x, y + 5, x + 31, y + 5, x + 23, y + 23, GOLD)
+  c:triangle(x, y + 5, x + 23, y + 23, x + 8, y + 23, GOLD)
+  c:circle(x - 4, y + 11, 6, GOLD, {fill = false, width = 2})
+  c:circle(x + 35, y + 11, 6, GOLD, {fill = false, width = 2})
+  c:rect(x + 13, y + 23, 5, 7, GOLD)
+  c:rect(x + 6, y + 30, 19, 4, GOLD)
 end
 
 local function draw_standings()
-  draw_trophy(84, 26)
-  c:text("CHAMPIONSHIP", 196, 30, PALE, 20, "center")
+  draw_trophy(72, 24)
+  c:text("CHAMPIONSHIP", 204, 28, PALE, 24, "center")
   if season then
-    c:text(season .. " - after round " .. round, 176, 64, GOLD, 14,
+    c:text(season .. " - after round " .. round, 176, 68, GOLD, 16,
            "center")
   end
   if #top == 0 then
@@ -560,17 +561,17 @@ local function draw_standings()
     return
   end
   for i, d in ipairs(top) do
-    local y = 96 + (i - 1) * 62
-    c:rect(44, y, 5, 42, team_color(d.team))
-    draw_flag(56, y + 4, d.nat)
-    c:text(i .. ". " .. d.code .. " - " .. d.name, 104, y + 2,
-           i == 1 and GOLD or PALE, 19, "left")
+    local y = 104 + (i - 1) * 68
+    c:rect(40, y, 5, 48, team_color(d.team))
+    draw_flag(52, y + 6, d.nat)
+    c:text(i .. ". " .. d.code .. " - " .. d.name, 106, y + 2,
+           i == 1 and GOLD or PALE, 22, "left")
     c:text(d.team .. " - " .. d.pts .. " pts - " .. d.wins ..
-           (d.wins == 1 and " win" or " wins"), 104, y + 28,
-           LAV, 13, "left")
-    if i < #top then c:line(44, y + 52, 308, y + 52, DIM, 1) end
+           (d.wins == 1 and " win" or " wins"), 106, y + 31,
+           LAV, 15, "left")
+    if i < #top then c:line(40, y + 58, 312, y + 58, DIM, 1) end
   end
-  c:text("top 3 in the title race", 176, 288, LAV, 13, "center")
+  c:text("top 3 in the title race", 176, 296, LAV, 15, "center")
 end
 
 local function draw()
@@ -584,7 +585,7 @@ local function draw()
   elseif screen == 3 then draw_podium()
   else draw_standings() end
   for i = 1, 4 do
-    c:circle(146 + (i - 1) * 20, 330, 3,
+    c:circle(146 + (i - 1) * 20, 336, 3,
              i == screen and PALE or DIM, {fill = true})
   end
 end

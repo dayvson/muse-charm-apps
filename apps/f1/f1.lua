@@ -450,8 +450,8 @@ local function draw_race()
     return
   end
   local head = disp.name:gsub(" Grand Prix$", "")
-  c:text(head, 176, 25, PALE, 44, "center")
-  c:text("GRAND PRIX", 176, 83, GOLD, 18, "center")
+  c:text(head, 176, 20, PALE, 44, "center")
+  c:text("GRAND PRIX", 176, 78, GOLD, 18, "center")
   draw_segs(disp.epoch)
   draw_outline(disp.cid)
   c:text(race_local_parts(disp.epoch), 176, 278, PALE, 20, "center")

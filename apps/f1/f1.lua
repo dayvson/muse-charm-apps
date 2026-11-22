@@ -4,7 +4,7 @@
 -- the edge of the screen that drains over the last seven
 -- days before lights out), the weekend schedule, the last
 -- race's podium, and the championship top 3 with flags and
--- team colours. Tapping the circuit on the race screen
+-- medal-coloured place bars. Tapping the circuit on the race screen
 -- swaps it for the race after the next one, and back. If
 -- the app is open at lights out, the five start lights run
 -- their sequence. Swipe or tap to move between screens.
@@ -357,7 +357,7 @@ end
 local function build_path(cid)
   local raw = OUTLINES[cid]
   if not raw then path = nil return end
-  local cx, cy, hx, hy = 176, 190, 140, 104
+  local cx, cy, hx, hy = 176, 198, 140, 100
   local pts, cum, total = {}, {}, 0
   for i, p in ipairs(raw) do
     pts[i] = {cx + (p[1] - 50) / 50 * hx,
@@ -443,32 +443,32 @@ end
 local function draw_race()
   local disp = (after_mode and after) or race
   c:text(after_mode and "THE ONE AFTER" or "NEXT RACE",
-         176, 26, LAV, 13, "center")
+         176, 14, LAV, 14, "center")
   if not disp then
     c:text("No race data yet", 176, 150, PALE, 20, "center")
     c:text("check your connection", 176, 182, LAV, 14, "center")
     return
   end
   local head = disp.name:gsub(" Grand Prix$", "")
-  c:text(head, 176, 44, PALE, 36, "center")
-  c:text("GRAND PRIX", 176, 86, GOLD, 17, "center")
+  c:text(head, 176, 40, PALE, 44, "center")
+  c:text("GRAND PRIX", 176, 98, GOLD, 18, "center")
   draw_segs(disp.epoch)
   draw_outline(disp.cid)
-  c:text(race_local_parts(disp.epoch), 176, 274, PALE, 20, "center")
-  c:text(countdown(disp.epoch) .. "  -  " .. state, 176, 300,
+  c:text(race_local_parts(disp.epoch), 176, 278, PALE, 20, "center")
+  c:text(countdown(disp.epoch) .. "  -  " .. state, 176, 304,
          GOLD, 16, "center")
 end
 
 local function draw_schedule()
-  c:text("WEEKEND SCHEDULE", 176, 34, LAV, 14, "center")
+  c:text("WEEKEND SCHEDULE", 176, 26, LAV, 13, "center")
   if race then
     local head, n = race.name:gsub(" Grand Prix$", "")
     if n > 0 then head = head .. " GP" end
-    c:text(head, 176, 54, PALE, 24, "center")
+    c:text(head, 176, 46, PALE, 28, "center")
   end
-  c:line(96, 88, 256, 88, DIM, 1)
+  c:line(116, 88, 236, 88, GOLD, 2)
   if #sched == 0 then
-    c:text("No schedule yet", 176, 160, PALE, 18, "center")
+    c:text("No schedule yet", 176, 170, PALE, 18, "center")
     return
   end
   local now = time.now()
@@ -476,15 +476,29 @@ local function draw_schedule()
   for i, s in ipairs(sched) do
     if s.epoch > now and not next_i then next_i = i end
   end
+  -- a timeline down the left: one dot per session, coloured
+  -- by kind (practice lavender, sprint blue, qualifying gold,
+  -- the race red), greyed once it has run; the next session
+  -- gets a ring around its dot and gold text
+  local type_col = {FP1 = LAV, FP2 = LAV, FP3 = LAV,
+                    SPRINT = 0x64C4FF, QUALI = GOLD, RACE = RED}
+  local step = (#sched > 5) and 40 or 46
+  local y0 = 108
+  c:line(62, y0 + 10, 62, y0 + (#sched - 1) * step + 10, DIM, 2)
   for i, s in ipairs(sched) do
-    local y = 102 + (i - 1) * 38
-    local col = (s.epoch <= now) and DIM
-                or ((i == next_i) and GOLD or PALE)
+    local y = y0 + (i - 1) * step
+    local past = s.epoch <= now
+    local dc = type_col[s.label] or PALE
+    if past then dc = DIM end
     if i == next_i then
-      c:circle(50, y + 9, 4, GOLD, {fill = true})
+      c:circle(62, y + 10, 8, dc, {fill = false, width = 2})
+      c:circle(62, y + 10, 5, dc, {fill = true})
+    else
+      c:circle(62, y + 10, 5, dc, {fill = true})
     end
-    c:text(s.label, 66, y, col, 19, "left")
-    c:text(fmt_short(s.epoch), 286, y, col, 19, "right")
+    local tcol = past and DIM or ((i == next_i) and GOLD or PALE)
+    c:text(s.label, 84, y, tcol, 21, "left")
+    c:text(fmt_short(s.epoch), 300, y, tcol, 21, "right")
   end
 end
 
@@ -508,8 +522,6 @@ local function draw_podium()
            medals[i], 22, "left")
     c:text(d.team, 106, y + 31, LAV, 15, "left")
   end
-  c:text("the podium from the last race", 176, 296, LAV, 15,
-         "center")
 end
 
 -- the start-lights sequence: five red lights come on one by
@@ -550,8 +562,8 @@ local function draw_trophy(x, y)
 end
 
 local function draw_standings()
-  draw_trophy(72, 24)
-  c:text("CHAMPIONSHIP", 204, 28, PALE, 24, "center")
+  draw_trophy(56, 24)
+  c:text("CHAMPIONSHIP", 210, 28, PALE, 24, "center")
   if season then
     c:text(season .. " - after round " .. round, 176, 68, GOLD, 16,
            "center")
@@ -560,18 +572,20 @@ local function draw_standings()
     c:text("No standings yet", 176, 150, PALE, 20, "center")
     return
   end
+  -- the bar beside each flag carries the place colour:
+  -- gold, silver, bronze for first, second, third
+  local medals = {GOLD, 0xC0C0C0, 0xCD7F32}
   for i, d in ipairs(top) do
-    local y = 104 + (i - 1) * 68
-    c:rect(40, y, 5, 48, team_color(d.team))
-    draw_flag(52, y + 6, d.nat)
-    c:text(i .. ". " .. d.code .. " - " .. d.name, 106, y + 2,
+    local y = 108 + (i - 1) * 76
+    c:rect(36, y, 5, 52, medals[i])
+    draw_flag(48, y + 8, d.nat)
+    c:text(i .. ". " .. d.code .. " - " .. d.name, 104, y + 2,
            i == 1 and GOLD or PALE, 22, "left")
     c:text(d.team .. " - " .. d.pts .. " pts - " .. d.wins ..
-           (d.wins == 1 and " win" or " wins"), 106, y + 31,
-           LAV, 15, "left")
-    if i < #top then c:line(40, y + 58, 312, y + 58, DIM, 1) end
+           (d.wins == 1 and " win" or " wins"), 104, y + 32,
+           LAV, 18, "left")
+    if i < #top then c:line(36, y + 66, 316, y + 66, DIM, 1) end
   end
-  c:text("top 3 in the title race", 176, 296, LAV, 15, "center")
 end
 
 local function draw()
@@ -624,9 +638,9 @@ touch_fn = function(kind, x, y)
       after_mode = false
     elseif math.abs(dx) <= 12 then
       -- a tap on the circuit (raw screen coords: the circuit
-      -- sits around 233, 247 with radius about 130) swaps the
+      -- sits around 233, 255 with radius about 130) swaps the
       -- race screen to the race after the next one, and back
-      local cx, cy = x - 233, y - 247
+      local cx, cy = x - 233, y - 255
       if screen == 1 and after
          and cx * cx + cy * cy < 130 * 130 then
         after_mode = not after_mode

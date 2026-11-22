@@ -27,9 +27,11 @@ where you are.
   heading); tap it again to swap back.
 - Weekend schedule: every session of the coming weekend in
   local time (practice, qualifying, the sprint when there is
-  one, and the race), in big type with room to breathe.
-  Sessions already over are dimmed; the next one coming up
-  is gold with a dot beside it.
+  one, and the race), in big type with room to breathe, on a
+  timeline down the left: one dot per session, coloured by
+  kind (practice lavender, sprint blue, qualifying gold, the
+  race red). Sessions already over are dimmed; the next one
+  coming up gets a ring around its dot and gold text.
 - Last race: the previous Grand Prix and its podium, the
   three finishers in medal colours with their flags and
   teams. The heading is the Grand Prix name shortened to
@@ -37,9 +39,10 @@ where you are.
   GP, ...).
 - Championship: a gold trophy beside a bigger title, then
   the top 3 drivers in the title race. Each row has a bar in
-  the team's colour, the driver's flag drawn from their
-  nationality, then their name, team, points and wins, with
-  the season and round the standings are from.
+  the place colour (gold, silver, bronze), the driver's flag
+  drawn from their nationality, then their name, team,
+  points and wins, with the season and round the standings
+  are from.
 
 ## Lights out
 

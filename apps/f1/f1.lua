@@ -71,34 +71,51 @@ local function team_color(team)
   return DIM
 end
 
--- The drawing surface is one full-screen 466x466 canvas, so
--- the countdown segments can sit near the true edge of the
--- round screen. All the drawing code works in a 352 box
--- centred on it; this proxy shifts every coordinate by 57
--- to land there. The canvas is created first, before
--- anything else allocates.
+-- The drawing surface is a 155x155 canvas shown at zoom 3,
+-- so it fills the whole 466 screen for a ninth of the
+-- memory of a full-size canvas (47 KB instead of 424 KB).
+-- All the drawing code works in a 352 box centred on the
+-- screen; this proxy maps it into canvas pixels: the screen
+-- coordinate (v + 57), in thirds, with sizes scaled to match.
+-- The canvas is created first, before anything else
+-- allocates.
 local touch_fn = nil
 local raw = ui.canvas{
-  w = 466, h = 466, color = BG,
+  w = 155, h = 155, zoom = 3, color = BG,
   on_touch = function(kind, x, y)
     if touch_fn then touch_fn(kind, x, y) end
   end,
 }
+local function px(v) return (v + 57) / 3 end
+local function half(v) return v / 3 end
+local function wdt(w)
+  if not w then return w end
+  return math.max(1, math.floor(w / 3 + 0.5))
+end
+local function opts(o)
+  if o and o.width then
+    local n = {}
+    for k, v in pairs(o) do n[k] = v end
+    n.width = wdt(o.width)
+    return n
+  end
+  return o
+end
 local c = {}
 function c:clear(col) raw:clear(col) end
 function c:rect(x, y, w, h, col, o)
-  raw:rect(x + 57, y + 57, w, h, col, o) end
+  raw:rect(px(x), px(y), half(w), half(h), col, opts(o)) end
 function c:circle(x, y, r, col, o)
-  raw:circle(x + 57, y + 57, r, col, o) end
+  raw:circle(px(x), px(y), half(r), col, opts(o)) end
 function c:line(x1, y1, x2, y2, col, w)
-  raw:line(x1 + 57, y1 + 57, x2 + 57, y2 + 57, col, w) end
+  raw:line(px(x1), px(y1), px(x2), px(y2), col, wdt(w)) end
 function c:triangle(x1, y1, x2, y2, x3, y3, col)
-  raw:triangle(x1 + 57, y1 + 57, x2 + 57, y2 + 57,
-               x3 + 57, y3 + 57, col) end
+  raw:triangle(px(x1), px(y1), px(x2), px(y2),
+               px(x3), px(y3), col) end
 function c:text(s, x, y, col, size, align)
-  raw:text(s, x + 57, y + 57, col, size, align) end
+  raw:text(s, px(x), px(y), col, wdt(size), align) end
 function c:arc(x, y, r, a0, sweep, col, w)
-  raw:arc(x + 57, y + 57, r, a0, sweep, col, w) end
+  raw:arc(px(x), px(y), half(r), a0, sweep, col, wdt(w)) end
 
 local race = nil   -- {name, cid, circuit, loc, country, epoch}
 local after = nil  -- the race after the next one, same shape
@@ -689,19 +706,19 @@ touch_fn = function(kind, x, y)
   elseif kind == "up" and down_x then
     local dx = x - down_x
     down_x = nil
-    if dx < -40 then
+    if dx < -13 then
       screen = screen % 4 + 1
       after_mode = false
-    elseif dx > 40 then
+    elseif dx > 13 then
       screen = (screen + 2) % 4 + 1
       after_mode = false
-    elseif math.abs(dx) <= 12 then
-      -- a tap on the circuit (raw screen coords: the circuit
-      -- sits around 233, 255 with radius about 130) swaps the
+    elseif math.abs(dx) <= 4 then
+      -- a tap on the circuit (canvas coords: the circuit
+      -- sits around 78, 85 with radius about 43) swaps the
       -- race screen to the race after the next one, and back
-      local cx, cy = x - 233, y - 255
+      local cx, cy = x - 78, y - 85
       if screen == 1 and after
-         and cx * cx + cy * cy < 130 * 130 then
+         and cx * cx + cy * cy < 43 * 43 then
         after_mode = not after_mode
       else
         screen = screen % 4 + 1
@@ -715,6 +732,9 @@ end
 
 draw()
 print("f1 ready, screen " .. screen .. ", data " .. state)
+local gfx_used, gfx_avail = gfx.memory()
+print("f1 gfx memory: used " .. tostring(gfx_used) ..
+      ", available " .. tostring(gfx_avail))
 
 local function save_race(r)
   race = r

@@ -4,11 +4,14 @@ Formula 1 on the gadget, in the Apps by Muse launcher. Lua
 source: `f1.lua`. Installed on the gadget with id `f1` and
 shown in the launcher as F1.
 
-The app draws on one full-screen 466x466 canvas (created
-first, before anything else allocates), and all the content
-is drawn in a 352 box centred on it. Swipe or tap to move
-between the four screens; the four dots at the bottom show
-where you are.
+The app draws on one 155x155 canvas shown at zoom 3, so it
+fills the whole 466 screen for a ninth of the memory of a
+full-size canvas (47 KB instead of 424 KB; the canvas is
+created first, before anything else allocates). All the
+content is drawn in a 352 box centred on the screen and
+mapped into canvas pixels by a small proxy. Swipe or tap to
+move between the four screens; the four dots at the bottom
+show where you are.
 
 ## The four screens
 

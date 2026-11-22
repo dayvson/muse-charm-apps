@@ -10,17 +10,20 @@ Built as a circle for the round screen; nothing lives in the
 corners, where the round bezel would clip it.
 
 - A zodiac wheel rings the edge: a thin track with a dot per sign.
-  Swipe (or tap the screen edges) and the wheel turns until the
-  new sign reaches the top, marked by a larger gold dot.
-- In the middle, a round medallion with a soft halo holds the
-  sign's glyph, drawn from strokes (lines, arcs, circles) in a
-  consistent hand. Below it, all inside the safe disc: the sign
+  At the top of the wheel sits the app's mark, the gold ring and
+  star from the launcher icon. Tap a side of the screen (or swipe)
+  and the wheel turns through that mark until the new sign
+  settles inside it.
+- High in the circle, a round medallion with a soft halo holds
+  the sign's glyph, drawn from strokes (lines, arcs, circles) in
+  a consistent hand. Below it, all inside the safe disc: the sign
   name, its dates with today's date, the day's message, and the
-  lucky line, which is placed from the message's line count so it
-  is always in view.
+  lucky line, placed high enough that the circle is still wide
+  enough to hold it.
 - A faint star band sits outside the wheel. The sign you land on
   is kept in the app store and opens first next time; with no pick
   yet, it opens on today's sign.
+- The drawing surface is one full-screen 466x466 canvas (zoom 1).
 
 ## The daily message
 

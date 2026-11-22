@@ -1,10 +1,14 @@
 -- Horoscope: built as a circle for the round screen. A zodiac
--- wheel rings the edge with a dot per sign; swipe and the wheel
--- turns until your sign reaches the top. In the middle, a round
+-- wheel rings the edge with a dot per sign; at the top of the
+-- wheel sits the app's mark, a gold ring with a star, and when
+-- you tap or swipe the wheel turns until your sign reaches
+-- the top and settles inside that mark. Below it, a round
 -- medallion holds the sign's glyph, with its name, dates, the
--- day's message and the lucky line stacked inside the safe disc.
--- The message is picked from the sign and the date, so it is the
--- same all day and changes overnight.
+-- day's message and the lucky line stacked inside the safe
+-- disc, high enough to stay clear of the circle's bottom.
+-- The message is picked from the sign and the date, so it is
+-- the same all day and changes overnight. The drawing surface
+-- is one full-screen 466x466 canvas (zoom 1).
 
 local BG = 0x0B0B12
 local PALE = 0xD8D5CC
@@ -125,8 +129,32 @@ local rot = -(idx - 1) * 30 -- wheel rotation, degrees; sign idx on top
 local rot_target = rot
 local last_day = math.floor(time.now() / 86400)
 
-local c
-local GS, GW = 0.72, 4 -- glyph scale and stroke width
+-- the one full-screen canvas comes first, while the graphics
+-- pool is freshest; touches arrive in screen pixels
+local touch_fn = nil
+local c = ui.canvas{
+  w = 466, h = 466, color = BG,
+  on_touch = function(kind, x, y)
+    if touch_fn then touch_fn(kind, x, y) end
+  end,
+}
+ui.background(BG) -- the sky colour fills the whole round screen
+
+-- launcher icon: a gold ring and a star on the app's violet;
+-- the same mark sits at the top of the wheel on screen
+do
+  local ic = ui.canvas{w = 96, h = 96, color = 0x6C5CA8}
+  ic:circle(48, 48, 31, 0xD9A441, {fill = false, width = 5})
+  ic:triangle(48, 25, 55, 48, 41, 48, 0xE9E2CE)
+  ic:triangle(48, 71, 55, 48, 41, 48, 0xE9E2CE)
+  ic:triangle(25, 48, 48, 55, 48, 41, 0xE9E2CE)
+  ic:triangle(71, 48, 48, 55, 48, 41, 0xE9E2CE)
+  ic:circle(48, 48, 3, 0xD9A441, {fill = true})
+  app.icon(ic)
+  ic:delete()
+end
+
+local GS, GW = 1.05, 5 -- glyph scale and stroke width
 
 local function L(mx, my, x1, y1, x2, y2)
   c:line(mx + x1 * GS, my + y1 * GS, mx + x2 * GS, my + y2 * GS, GLYPH, GW)
@@ -196,60 +224,74 @@ local GLYPHS = {
   end,
 }
 
+-- the icon's mark, fixed at the top of the wheel: a gold ring
+-- with the four-point star. The wheel's dots rotate through
+-- it when the sign changes; the chosen sign settles inside.
+local function draw_top_mark()
+  c:circle(233, 28, 16, GOLD, {fill = false, width = 3})
+  c:triangle(233, 17, 238, 28, 228, 28, GLYPH)
+  c:triangle(233, 39, 238, 28, 228, 28, GLYPH)
+  c:triangle(222, 28, 233, 33, 233, 23, GLYPH)
+  c:triangle(244, 28, 233, 33, 233, 23, GLYPH)
+  c:circle(233, 28, 3, GOLD, {fill = true})
+end
+
 local function draw()
   local name, dates = SIGNS[idx][1], SIGNS[idx][2]
   local d = time.date()
   local msg = pick(OPENERS, idx, 1) .. " " .. pick(MIDDLES, idx, 2) ..
               " " .. pick(CLOSERS, idx, 3)
-  local lines = wrap(msg, 30)
-  if #lines > 6 then lines = wrap(msg, 34) end
+  local lines = wrap(msg, 29)
+  if #lines > 6 then lines = wrap(msg, 33) end
 
   c:clear(BG)
 
-  -- stars in the band outside the wheel, seeded by the day
+  -- stars in the thin band outside the wheel, seeded by the day
   local s = math.floor(time.now() / 86400) * 1103515245 + 12345
   local function rnd()
     s = (s * 1103515245 + 12345) % 2147483648
     return s / 2147483648
   end
   for i = 1, 40 do
-    local x, y = rnd() * 400, rnd() * 400
-    local dx, dy = x - 200, y - 200
+    local x, y = rnd() * 466, rnd() * 466
+    local dx, dy = x - 233, y - 233
     local dd = dx * dx + dy * dy
-    if dd > 190 * 190 and dd < 226 * 226 then
+    if dd > 216 * 216 and dd < 231 * 231 then
       c:pixel(x, y, FAINT)
     end
   end
 
   -- the zodiac wheel: a track ring and a dot per sign
-  c:arc(200, 200, 178, 0, 360, DIM, 2)
+  c:arc(233, 233, 205, 0, 360, DIM, 3)
   for i = 1, 12 do
     local a = math.rad((i - 1) * 30 + rot)
-    local x = 200 + 178 * math.sin(a)
-    local y = 200 - 178 * math.cos(a)
+    local x = 233 + 205 * math.sin(a)
+    local y = 233 - 205 * math.cos(a)
     if i == idx then
-      c:circle(x, y, 8, GOLD, {fill = true})
-      c:circle(x, y, 12, GOLD, {fill = false, width = 2})
+      c:circle(x, y, 9, GOLD, {fill = true})
+      c:circle(x, y, 14, GOLD, {fill = false, width = 2})
     else
-      c:circle(x, y, 3, FAINT, {fill = true})
+      c:circle(x, y, 4, FAINT, {fill = true})
     end
   end
+  draw_top_mark()
 
-  -- the medallion in the middle
-  c:circle(200, 112, 54, DISC, {fill = true, opacity = 110})
-  c:circle(200, 112, 44, DISC, {fill = true})
-  c:circle(200, 112, 44, GOLD, {fill = false, width = 3})
-  GLYPHS[idx](200, 112)
+  -- the medallion, high in the circle
+  c:circle(233, 120, 62, DISC, {fill = true, opacity = 110})
+  c:circle(233, 120, 51, DISC, {fill = true})
+  c:circle(233, 120, 51, GOLD, {fill = false, width = 3})
+  GLYPHS[idx](233, 120)
 
-  c:text(name, 200, 168, PALE, 28, "center")
+  c:text(name, 233, 190, PALE, 32, "center")
   c:text(dates .. "  -  " .. WDAYS[d.wday] .. ", " .. MONTHS[d.month] ..
-         " " .. d.day, 200, 206, GOLD, 14, "center")
+         " " .. d.day, 233, 228, GOLD, 16, "center")
   for i, line in ipairs(lines) do
-    c:text(line, 200, 238 + (i - 1) * 23, PALE, 16, "center")
+    c:text(line, 233, 256 + (i - 1) * 25, PALE, 17, "center")
   end
-  -- fixed spot below the wheel, clear of its bottom dot and track
+  -- the lucky line sits higher than before, where the circle
+  -- is still wide enough to hold it
   c:text("Lucky " .. lucky_number(idx) .. "  -  " .. pick(COLORS, idx, 4) ..
-         "  -  " .. pick(MOODS, idx, 5), 200, 386, LAV, 14, "center")
+         "  -  " .. pick(MOODS, idx, 5), 233, 402, LAV, 14, "center")
 end
 
 local function change(dir)
@@ -263,78 +305,24 @@ local function change(dir)
   draw()
 end
 
--- launcher icon: a gold ring and a star on the app's violet
-do
-  local ic = ui.canvas{w = 96, h = 96, color = 0x6C5CA8}
-  ic:circle(48, 48, 31, 0xD9A441, {fill = false, width = 5})
-  ic:triangle(48, 25, 55, 48, 41, 48, 0xE9E2CE)
-  ic:triangle(48, 71, 55, 48, 41, 48, 0xE9E2CE)
-  ic:triangle(25, 48, 48, 55, 48, 41, 0xE9E2CE)
-  ic:triangle(71, 48, 48, 55, 48, 41, 0xE9E2CE)
-  ic:circle(48, 48, 3, 0xD9A441, {fill = true})
-  app.icon(ic)
-  ic:delete()
-end
-
-ui.background(BG) -- the sky colour fills the whole round screen
-
 local down_x = nil
-local function handle_touch(kind, x, y)
+touch_fn = function(kind, x, y)
   if kind == "down" then
     down_x = x
   elseif kind == "up" and down_x then
     local dx = x - down_x
-    if dx < -40 then
+    if dx < -47 then
       change(1)
-    elseif dx > 40 then
+    elseif dx > 47 then
       change(-1)
-    elseif x < 56 then
+    elseif x < 233 then
       change(-1)
-    elseif x > 344 then
+    else
       change(1)
     end
     down_x = nil
   end
 end
-
--- the drawing surface is a 200x200 canvas shown at zoom 2,
--- so it fills the screen for a quarter of the memory of a
--- 400 canvas (80 KB instead of 320 KB); this proxy halves
--- every coordinate and size into canvas pixels, and touches
--- are doubled back into the app's 400-wide space
-local raw = ui.canvas{
-  w = 200, h = 200, zoom = 2, color = BG,
-  on_touch = function(kind, x, y)
-    handle_touch(kind, x * 2, y * 2)
-  end,
-}
-local function wdt(w)
-  if not w then return w end
-  return math.max(1, math.floor(w / 2 + 0.5))
-end
-local function opts(o)
-  if o and o.width then
-    local n = {}
-    for k, v in pairs(o) do n[k] = v end
-    n.width = wdt(o.width)
-    return n
-  end
-  return o
-end
-c = {}
-function c:clear(col) raw:clear(col) end
-function c:pixel(x, y, col) raw:pixel(x / 2, y / 2, col) end
-function c:line(x1, y1, x2, y2, col, w)
-  raw:line(x1 / 2, y1 / 2, x2 / 2, y2 / 2, col, wdt(w)) end
-function c:circle(x, y, r, col, o)
-  raw:circle(x / 2, y / 2, r / 2, col, opts(o)) end
-function c:triangle(x1, y1, x2, y2, x3, y3, col)
-  raw:triangle(x1 / 2, y1 / 2, x2 / 2, y2 / 2,
-               x3 / 2, y3 / 2, col) end
-function c:arc(x, y, r, a0, sweep, col, w)
-  raw:arc(x / 2, y / 2, r / 2, a0, sweep, col, wdt(w)) end
-function c:text(s, x, y, col, size, align)
-  raw:text(s, x / 2, y / 2, col, wdt(size), align) end
 
 ui.every(33, function()
   if rot ~= rot_target then
@@ -354,6 +342,7 @@ end)
 
 draw()
 print("horoscope ready, on " .. SIGNS[idx][1])
-local gfx_used, gfx_avail = gfx.memory()
-print("horoscope gfx memory: used " .. tostring(gfx_used) ..
-      ", available " .. tostring(gfx_avail))
+local gu, ga, gl = gfx.memory()
+print("horoscope gfx memory: used " .. tostring(gu) ..
+      ", available " .. tostring(ga) ..
+      ", largest " .. tostring(gl))

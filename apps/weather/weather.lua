@@ -349,16 +349,16 @@ local function draw()
     c:circle(233 - 16 + tw / 2 + 16, 146, 10, WHITE,
              {fill = false, width = 5})
     c:text(LABELS[w.code] or "", 233, 237, WHITE, 21, "center")
-    -- high and low stacked on the right of the temperature,
-    -- wind and humidity stacked on the left
+    -- humidity and wind side by side on one line under the
+    -- temperature block; high and low stack on the right
+    c:text("Hum: " .. w.hum .. "%", 163, 268, SOFT, 15,
+           "center")
+    c:text("W: " .. math.floor(w.wind + 0.5) .. " mph", 303,
+           268, SOFT, 15, "center")
     c:text("H: " .. math.floor(w.hi + 0.5), 382, 176, WHITE,
            15, "center")
     c:text("L: " .. math.floor(w.lo + 0.5), 382, 206, SOFT,
            15, "center")
-    c:text("W: " .. math.floor(w.wind + 0.5) .. " mph", 84,
-           176, SOFT, 13, "center")
-    c:text("Hum: " .. w.hum .. "%", 84, 206, SOFT, 13,
-           "center")
     -- the glass hourly panel, kept inside the round face
     -- and shifted up: only the next three hours, so each
     -- column is wide and the type can breathe

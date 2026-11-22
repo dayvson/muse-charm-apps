@@ -17,7 +17,7 @@ screen is a gradient sky painted for the city's condition
 and time of day, the city name over a very large
 temperature (with a drawn degree ring, since the gadget
 fonts are ASCII only), the condition, the day's high and
-low, and a translucent glass panel with the next six
+low, and a translucent glass panel with the next three
 hours, each with its own small drawn glyph. Wind and
 humidity sit under the panel.
 

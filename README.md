@@ -38,7 +38,7 @@ free for progress rings and other edge displays.
   time (Miami, New York, Rio de Janeiro, San Francisco; tap
   the city name to switch): a gradient sky with an animated
   sun, moon, stars, clouds, rain or snow, a big temperature
-  and a glass panel with the next six hours, from Open-Meteo.
+  and a glass panel with the next three hours, from Open-Meteo.
 
 ## How an app runs
 

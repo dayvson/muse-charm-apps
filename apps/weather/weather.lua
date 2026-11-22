@@ -5,7 +5,7 @@
 -- a glowing sun or a crescent moon with twinkling stars,
 -- drifting clouds, falling rain or snow, and the odd
 -- lightning flash in a storm. Under the big temperature, a
--- glass panel shows the next six hours. Data comes from
+-- glass panel shows the next three hours. Data comes from
 -- Open-Meteo (free, no key) and is cached per city in the
 -- store, so the app opens instantly on saved data.
 
@@ -176,10 +176,10 @@ for i = 1, 42 do
               p = i * 0.7}
 end
 local clouds = {
-  {x = 60, y = 92, s = 1.0, v = 0.35},
-  {x = 300, y = 60, s = 0.7, v = 0.5},
-  {x = 180, y = 130, s = 1.25, v = 0.25},
-  {x = 420, y = 110, s = 0.85, v = 0.42},
+  {x = 50, y = 158, s = 0.8, v = 0.35},
+  {x = 395, y = 170, s = 0.65, v = 0.5},
+  {x = 120, y = 215, s = 0.55, v = 0.25},
+  {x = 330, y = 228, s = 0.5, v = 0.42},
 }
 local rain = {}
 for i = 1, 34 do
@@ -352,28 +352,30 @@ local function draw()
     c:text(LABELS[w.code] or "", 233, 262, WHITE, 21, "center")
     c:text("H:" .. math.floor(w.hi + 0.5) .. "   L:" ..
            math.floor(w.lo + 0.5), 233, 292, SOFT, 19, "center")
-    -- the glass hourly panel
-    c:rect(53, 330, 360, 96, 0x0B1D38, {opacity = 105,
-           radius = 18})
-    c:line(73, 356, 393, 356, WHITE, 1)
-    local n = math.min(6, #w.hours)
+    -- the glass hourly panel, kept inside the round face
+    -- and shifted up: only the next three hours, so each
+    -- column is wide and the type can breathe
+    c:rect(83, 306, 300, 88, 0x0B1D38, {opacity = 105,
+           radius = 16})
+    c:line(99, 336, 367, 336, WHITE, 1)
+    local n = math.min(3, #w.hours)
     for i = 1, n do
-      local cx = 83 + (i - 1) * 60
+      local cx = 133 + (i - 1) * 100
       local h = w.hours[i]
-      c:text(i == 1 and "Now" or hour_label(h.hour), cx, 334,
-             SOFT, 14, "center")
-      draw_glyph(group_of(h.code), cx, 380, not w.is_day)
-      c:text(tostring(h.temp), cx, 398, WHITE, 17, "center")
+      c:text(i == 1 and "Now" or hour_label(h.hour), cx, 314,
+             SOFT, 13, "center")
+      draw_glyph(group_of(h.code), cx, 356, not w.is_day)
+      c:text(tostring(h.temp), cx, 368, WHITE, 18, "center")
     end
-    c:text("Wind " .. math.floor(w.wind + 0.5) .. " mph    " ..
-           "Humidity " .. w.hum .. "%", 233, 438, SOFT, 14,
+    c:text("Wind " .. math.floor(w.wind + 0.5) .. " mph, " ..
+           "Humidity " .. w.hum .. "%", 233, 404, SOFT, 12,
            "center")
   else
     c:text("Loading...", 233, 220, SOFT, 20, "center")
   end
   -- city dots
   for i = 1, #CITIES do
-    c:circle(203 + (i - 1) * 20, 458, 3,
+    c:circle(203 + (i - 1) * 20, 428, 3,
              i == idx and WHITE or 0x8FA8C8, {fill = true})
   end
   yoff = 0
@@ -420,14 +422,14 @@ local function fetch(city)
       lo = F(d.daily.temperature_2m_min[1]),
       hours = {},
     }
-    -- the next six hours, starting at the current hour
+    -- the next three hours, starting at the current hour
     local cur = d.current.time:sub(1, 13)
     local start = nil
     for i, t in ipairs(d.hourly.time) do
       if t:sub(1, 13) == cur then start = i break end
     end
     if start then
-      for i = start, math.min(start + 5, #d.hourly.time) do
+      for i = start, math.min(start + 2, #d.hourly.time) do
         w.hours[#w.hours + 1] = {
           hour = tonumber(d.hourly.time[i]:sub(12, 13)),
           temp = F(d.hourly.temperature_2m[i]),

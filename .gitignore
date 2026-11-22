@@ -1,3 +1,30 @@
-__pycache__/
+# Allow-list: everything is ignored unless listed below, so device dumps,
+# logs, toolchains, the SDK checkout and avatar media can't be committed by accident.
+/*
+!/.gitignore
+!/README.md
+
+# Our code, docs and config
+!/apps/
+!/docs/
+!/firmware/
+!/scripts/
+!/patches/
+!/config/
+!/gif-avatar/
+!/muse-prompts/
+
+# Never, even inside allowed folders
+# Real Yahoo/Open-Meteo responses for the parser tests: refetch with firmware/tests/fetch_fixtures.sh.
+/firmware/tests/fixtures/
+/gif-avatar/out/
+/gif-avatar/test-clips/
+/gif-avatar/preview-*/
+/gif-avatar/contact-*.png
 frames/
+__pycache__/
 *.pyc
+*.bin
+*.elf
+*.log
+.DS_Store

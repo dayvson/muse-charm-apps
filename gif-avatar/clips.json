@@ -1,0 +1,26 @@
+{
+  "_comment": "Per-clip settings for your avatar clips (scripts/05_avatar.sh make). Keys are clip names or states. crop: auto|square|top-square|full|X,Y,W,H (source px); zoom; anchor: top|center|bottom; fps (before the budget fit scales every clip by the same factor); max_frames; range: 'A:B' source frames.",
+  "idle": {
+    "fps": 12
+  },
+  "working": {
+    "fps": 10
+  },
+  "milestone_level_up": {
+    "fps": 10
+  },
+  "waking": {
+    "crop": "square",
+    "fps": 8
+  },
+  "making_something": {
+    "crop": "square",
+    "fps": 8
+  },
+  "speaking": {
+    "fps": 12
+  },
+  "listening": {
+    "fps": 10
+  }
+}

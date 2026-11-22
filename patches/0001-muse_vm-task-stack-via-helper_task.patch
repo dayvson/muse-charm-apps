@@ -1,0 +1,37 @@
+diff --git a/esp32/main/app.c b/esp32/main/app.c
+index f3f7efb..1786289 100644
+--- a/esp32/main/app.c
++++ b/esp32/main/app.c
+@@ -2446,8 +2446,11 @@ static const vm_info_t *find_vm_by_id(const vm_info_t *vms, int count, const cha
+     return NULL;
+ }
+ 
+-// Runs on an internal-RAM stack: the caller's may be in PSRAM, and this reads
+-// and (on token refresh) writes NVS.
++// Reads and (on token refresh) writes NVS, so its stack must be one that's safe
++// for flash writes: internal RAM, or PSRAM where helper_task.h allows it (code
++// and rodata in PSRAM). The caller's own stack may be in PSRAM either way.
++// muse-charm: helper_task_* so live-voice builds whose internal heap is too
++// fragmented for an 8 KB block can still look up the VM.
+ static void hatch_vm_task(void *arg) {
+     hatch_vm_request_t *req = arg;
+     if (config_is_provisioned() && operation_gate_take(pdMS_TO_TICKS(15000), "Muse VM lookup")) {
+@@ -2476,7 +2479,7 @@ static void hatch_vm_task(void *arg) {
+     }
+     xTaskNotifyGive(req->waiter);
+     stack_monitor_record(NULL);
+-    vTaskDelete(NULL);
++    helper_task_delete(NULL);
+ }
+ 
+ bool app_hatch_vm_credentials(const char *want_vm, char *vm_id, size_t id_cap,
+@@ -2486,7 +2489,8 @@ bool app_hatch_vm_credentials(const char *want_vm, char *vm_id, size_t id_cap,
+         .vm_name = vm_name, .name_cap = name_cap,
+         .waiter = xTaskGetCurrentTaskHandle(),
+     };
+-    if (xTaskCreate(hatch_vm_task, "muse_vm", 8192, &req, 4, NULL) != pdPASS) {
++    if (helper_task_create(hatch_vm_task, "muse_vm", 8192, &req, 4, NULL) != pdPASS) {
++        ESP_LOGW(TAG, "Muse VM lookup: couldn't start its task (out of memory)");
+         return false;
+     }
+     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);

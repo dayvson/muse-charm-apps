@@ -1,0 +1,143 @@
+diff --git a/esp32/components/muse/Kconfig b/esp32/components/muse/Kconfig
+index ebc9a8d..97539d1 100644
+--- a/esp32/components/muse/Kconfig
++++ b/esp32/components/muse/Kconfig
+@@ -520,6 +520,20 @@ if MUSE_REALTIME_VOICE
+         bool "Muse says hello when a call starts"
+         default n
+ 
++    config MUSE_PTT_CALLS
++        bool "Hold the talk button to talk in a live call (push-to-talk calls)"
++        depends on MUSE_REALTIME_VOICE
++        default y if MUSE_BOARD_M5STACK_STOPWATCH
++        default n
++        help
++            Holding the talk button opens a live call (if one isn't open) and
++            streams your voice while held; on release Muse answers out loud,
++            with captions, and the call stays open for the next hold. It ends
++            after MUSE_REALTIME_VOICE_IDLE_S quiet seconds, or on the hang-up
++            button (blue on the StopWatch, the aux button on other touch
++            boards). Settings > Sound > Voice notes switches back to text-reply
++            voice notes. (muse-charm local patch: was StopWatch-only.)
++
+     config MUSE_REALTIME_VOICE_AEC_DUPLEX
+         bool "Keep the mic open while Muse talks if echo is cancelled"
+         depends on HOMEHUB_VOICE
+diff --git a/esp32/components/muse/muse_input.c b/esp32/components/muse/muse_input.c
+index 50147a5..66c6a6e 100644
+--- a/esp32/components/muse/muse_input.c
++++ b/esp32/components/muse/muse_input.c
+@@ -239,6 +239,19 @@ static void aux_button(bool pressed, bool edge)
+     if (edge && pressed) {
+         held = 0;
+         hinted = false;
++#if CONFIG_MUSE_PTT_CALLS && !CONFIG_MUSE_BOARD_M5STACK_STOPWATCH
++        /* muse-charm: in a push-to-talk call, or with its press still on the
++         * way, the aux button hangs up (the StopWatch uses blue for this). It
++         * wakes the screen, and its release doesn't then sleep it. */
++        if (muse_voice_ptt_enabled() && (muse_voice_in_call() || atomic_load(&s_call_pending))) {
++            muse_state_poke();
++            set_asleep(false, muse_board->aux_button);
++            post(MUSE_PTT_END_CALL, false);
++            sleep_in = 0;
++            swallow = true;
++            return;
++        }
++#endif
+         swallow = muse_state_asleep();
+         if (swallow) {
+             set_asleep(false, muse_board->aux_button);
+diff --git a/esp32/components/muse/muse_settings.c b/esp32/components/muse/muse_settings.c
+index 44174f5..6c61f99 100644
+--- a/esp32/components/muse/muse_settings.c
++++ b/esp32/components/muse/muse_settings.c
+@@ -125,7 +125,7 @@ esp_err_t muse_settings_init(void)
+         s.speaker_on = b;
+     }
+     load_u8("mic_gain", &s.mic_gain);
+-#if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH && CONFIG_MUSE_REALTIME_VOICE
++#if CONFIG_MUSE_PTT_CALLS
+     if (nvs_get_u8(s_nvs, "voice_notes", &b) == ESP_OK) {
+         atomic_store(&s_voice_notes, b != 0);
+     }
+diff --git a/esp32/components/muse/muse_settings_ui.c b/esp32/components/muse/muse_settings_ui.c
+index 20c46d3..e5d272d 100644
+--- a/esp32/components/muse/muse_settings_ui.c
++++ b/esp32/components/muse/muse_settings_ui.c
+@@ -118,7 +118,7 @@ static int64_t s_sdk_token_bad_us;   /* when an invalid SDK token was entered */
+ static lv_obj_t *s_ble_sw, *s_ble_status;
+ 
+ /* Sound page. */
+-#if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH && CONFIG_MUSE_REALTIME_VOICE
++#if CONFIG_MUSE_PTT_CALLS
+ static lv_obj_t *s_notes_sw;
+ #endif
+ static lv_obj_t *s_spk_sw, *s_vol_val, *s_vol_sl, *s_gain_val, *s_gain_sl, *s_bright_val, *s_bright_sl, *s_mic_bar, *s_mic_val;
+@@ -1247,7 +1247,7 @@ static void on_speaker_sw(lv_event_t *e)
+     muse_settings_set_speaker_on(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
+ }
+ 
+-#if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH && CONFIG_MUSE_REALTIME_VOICE
++#if CONFIG_MUSE_PTT_CALLS
+ static void on_notes_sw(lv_event_t *e)
+ {
+     muse_settings_set_voice_notes(lv_obj_has_state(lv_event_get_target(e), LV_STATE_CHECKED));
+@@ -1299,10 +1299,16 @@ static void build_sound_page(lv_obj_t *tile)
+         return;
+     }
+     s_sound = page(tile, "SOUND", true, &list);
+-#if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH && CONFIG_MUSE_REALTIME_VOICE
++#if CONFIG_MUSE_PTT_CALLS
+     s_notes_sw = switch_row(list, "Voice notes", muse_settings_voice_notes(), on_notes_sw);
++#if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH
+     note(list, "Off: hold yellow to talk live, release to listen; blue ends the call. "
+                "On: hold yellow to send a voice note. Applies to the next call.");
++#else
++    note(list, "Off: hold the talk button to talk live, release to hear Muse; "
++               "press the other button to end the call. "
++               "On: hold to send a voice note (text reply). Applies to the next call.");
++#endif
+ #endif
+     if (muse_board->audio_init) {
+         s_spk_sw = switch_row(list, "Speaker", muse_settings_speaker_on(), on_speaker_sw);
+@@ -1344,7 +1350,7 @@ static void tick_sound(void)
+     if (screen_only()) {
+         return;
+     }
+-#if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH && CONFIG_MUSE_REALTIME_VOICE
++#if CONFIG_MUSE_PTT_CALLS
+     lv_obj_set_state(s_notes_sw, LV_STATE_CHECKED, muse_settings_voice_notes());
+ #endif
+     bool on = muse_settings_speaker_on();   /* also toggled from the face */
+diff --git a/esp32/components/muse/muse_ui.c b/esp32/components/muse/muse_ui.c
+index c483049..3f528f0 100644
+--- a/esp32/components/muse/muse_ui.c
++++ b/esp32/components/muse/muse_ui.c
+@@ -1911,10 +1911,12 @@ static void update_status(muse_mode_t mode, float now)
+         uint32_t working = muse_pixel_working_accent();
+         if (working) accent = working;   /* the ring and label match the working avatar */
+     }
+-#if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH && CONFIG_MUSE_REALTIME_VOICE
++#if CONFIG_MUSE_PTT_CALLS
+     const char *call_name = muse_voice_call_label();
+-    const char *hint = muse_voice_call_hint();
+     if (call_name) name = call_name;
++#endif
++#if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH && CONFIG_MUSE_REALTIME_VOICE
++    const char *hint = muse_voice_call_hint();
+     if (s_talk_hint_lbl) {
+         /* Hidden over the settings rows, as the rim icons are, and once the
+          * call is ending (an empty hint). */
+diff --git a/esp32/components/muse/muse_voice.c b/esp32/components/muse/muse_voice.c
+index 26307ed..ba4d224 100644
+--- a/esp32/components/muse/muse_voice.c
++++ b/esp32/components/muse/muse_voice.c
+@@ -101,7 +101,7 @@ bool muse_voice_in_call(void) { return muse_voice_call_view() != MUSE_VOICE_VIEW
+ bool muse_voice_ptt_call(void) { return muse_voice_in_call() && atomic_load(&s_ptt_call); }
+ bool muse_voice_ptt_enabled(void)
+ {
+-#if CONFIG_MUSE_BOARD_M5STACK_STOPWATCH && CONFIG_MUSE_REALTIME_VOICE
++#if CONFIG_MUSE_PTT_CALLS
+     return !muse_settings_voice_notes();
+ #else
+     return false;

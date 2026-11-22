@@ -1,0 +1,30 @@
+# Project-specific settings layered on top of the SDK's waveshare-s3-175c profile.
+# Applied by scripts/02_build.sh into build-muse-waveshare-s3-175c/sdkconfig.
+# Never put the SDK token or Wi-Fi credentials here.
+
+# Live voice calls: tap PWR to call / hang up, hold PWR for a text voice note.
+CONFIG_MUSE_REALTIME_VOICE=y
+# Muse says hello when a call starts.
+CONFIG_MUSE_REALTIME_VOICE_GREETING=y
+
+# Setup tasks (pairing timers, Wi-Fi scan refresh, provisioning) get PSRAM stacks.
+# With live voice on, internal RAM fragments to a ~7 KB largest block, so the
+# 8 KB provisioning task fails to start ("error_operation_in_progress").
+CONFIG_HOMEHUB_SETUP_TASKS_IN_PSRAM=y
+
+# Home-network tunnel off: frees ~60 KB of internal RAM. With live voice on, the
+# 8 KB internal-RAM "muse_vm" task (VM credential lookup for the voice session)
+# otherwise can't be created once the tunnel is up -> "CAN'T REACH MUSE".
+# Cost: Muse can't reach home-network devices through this gadget.
+# CONFIG_HOMEHUB_TUNNEL is not set
+
+# The apps beside Muse: Watch, Stocks, Wind and the Lua app launcher (firmware/,
+# linked into components/muse/apps). Adds their commands and starts SNTP.
+CONFIG_MUSE_APPS=y
+# Our own device guide: the SDK's, plus how Muse should use the apps.
+# @ROOT@ is this repository's folder (scripts/02_build.sh fills it in).
+CONFIG_MUSE_DEVICE_GUIDE="@ROOT@/config/device-guide.md"
+# The stock tracker's price (Montserrat 48; ~flash only).
+CONFIG_LV_FONT_MONTSERRAT_48=y
+# Our partition table: the SDK's plus "luapps", a 1 MB FAT partition for Lua apps Muse builds.
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="@ROOT@/config/partitions-muse-charm.csv"

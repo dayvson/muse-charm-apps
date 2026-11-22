@@ -1,0 +1,84 @@
+# Engineering notes: memory, and why the patches and settings exist
+
+The ESP32-S3 on this board has about 512 KB of internal SRAM and 8 MB of PSRAM.
+Muse's live voice (Wi-Fi, TLS, audio, the Noise session) uses most of the internal
+RAM. Nearly every problem we hit came down to memory, so here's what we learned.
+It should save the next person some serial logs.
+
+## Internal RAM fragments during live voice
+
+After a voice call, the largest free block of internal RAM can drop to about 7 KB,
+with only about 22 KB free in total. Any task asking for an 8 KB internal stack then
+fails, often silently. So:
+
+- **`CONFIG_HOMEHUB_SETUP_TASKS_IN_PSRAM=y`:** pairing, Wi-Fi scan and provisioning
+  tasks get PSRAM stacks. Without it, provisioning fails with
+  `error_operation_in_progress`.
+- **`CONFIG_HOMEHUB_TUNNEL` off:** frees about 60 KB of internal RAM. With the tunnel
+  up, the voice session's VM lookup couldn't start, and the board showed "CAN'T REACH
+  MUSE". The cost is that Muse can't reach home-network devices through this gadget.
+- **[`patches/0001`](../patches/0001-muse_vm-task-stack-via-helper_task.patch):**
+  creates the `muse_vm` lookup task with the SDK's `helper_task_create`, which can put
+  its stack in PSRAM, instead of a fixed 8 KB internal stack.
+- **Every task the apps create** (the network fetches, the Lua host, the stop
+  watchdog) has its stack in PSRAM.
+- **Fetches check first:** [`apps_net.c`](../firmware/apps_net.c) skips a fetch if
+  internal RAM is under 16 KB free or the largest block is under 4 KB. mbedTLS
+  allocates from PSRAM in this configuration, and lwIP prefers it.
+- **Small allocations** (under 4 KB) still go to internal RAM, so the parsers avoid
+  building JSON trees (no cJSON for the Stocks and Wind responses).
+
+## Every byte of firmware costs PSRAM
+
+`CONFIG_SPIRAM_XIP_FROM_PSRAM=y` (the SDK's default on S3 boards) copies the whole
+firmware image into PSRAM at boot, and runs code and reads constants from there.
+That makes flash writes safe while running, so we left it on. The catch is that
+the firmware's size comes straight out of free PSRAM.
+
+With a 1 MB avatar and a 3.9 MB image, only about 590 KB of PSRAM was left at run
+time. What we did:
+
+- **Avatar trimmed to 512 KB** of frame data (`scripts/05_avatar.sh make
+  --budget-kb 512`), lowering frame rates rather than cutting clips.
+- **The watch dial is a 256-colour indexed image** (218 KB) that LVGL draws from flash
+  row by row, instead of a 424 KB RGB565 copy in RAM.
+- **The stocks chart is an 8-bit coverage map** tinted with the trend colour: 45 KB
+  instead of about 180 KB.
+- **Chart buffers exist only near the screen:** Stocks and Wind allocate them only
+  while their tile is on screen or one swipe away (`muse_apps_near`). A Lua app
+  starting frees them at once (`muse_apps_trim`).
+- **A 512 KB PSRAM reserve for voice** (`MUSE_APPS_PSRAM_RESERVE`): Lua images,
+  canvases and the native apps never take the last 512 KB.
+- **LVGL allocates from PSRAM** (`muse_lv_mem.c` in the SDK).
+
+The firmware is now about 3.4 MB, in a 4 MB app slot.
+
+## The command list is capped
+
+`link.register`, the list of commands the board sends Muse, is capped at 8 KB, and
+the SDK's own commands take about 2.8 KB of it. So the apps' command descriptions
+are terse ([`muse_apps.c`](../firmware/muse_apps.c)). The detail goes elsewhere:
+the device guide (up to 4096 bytes) for what the apps are for, and `luapp.admin`
+`api` (about 4 KB per reply, so split into three actions) for the Lua API.
+
+## Keeping Muse responsive
+
+- **No fetches during calls:** fetches wait until no call is active, the screen is
+  awake, and Muse's session has been steady for 3 s. A stock prefetch at boot once
+  crowded out pairing.
+- **Lua apps can't starve Muse:** the Lua task handles Muse's commands before the
+  app's timers. It paces frames (after a round taking T ms, it waits at least
+  max(5 ms, T/3)), and a hook aborts any callback that runs past 250 ms. `luapp.admin`
+  `stop` with `force=true` reboots the board if an app still won't stop in 3 s, and
+  the next boot reports it in `list`.
+- **Sound** from Lua apps is mixed in by Muse's voice task only while Muse is idle
+  (patch 0002, `muse_voice.c`), so it never competes with a call.
+
+## Useful log lines
+
+`scripts/capture_log.sh` saves the serial log to `logs/` (use `grep -a`: the logs
+contain binary bytes).
+
+- `int=22K/7K`-style figures: internal RAM free and its largest block.
+- `apps_net: HTTP ...` and `skipped: internal RAM ...`: fetches and why one didn't run.
+- `X unloaded (why): freed N KB`: a Lua app stopping, and what it gave back.

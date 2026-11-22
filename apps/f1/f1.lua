@@ -552,19 +552,20 @@ local function draw_lights()
   end
 end
 
--- a small gold trophy, drawn from shapes
+-- a gold trophy, drawn from shapes, sized to stand as tall
+-- as the two header text rows beside it
 local function draw_trophy(x, y)
-  c:rect(x, y, 31, 5, GOLD)
-  c:triangle(x, y + 5, x + 31, y + 5, x + 23, y + 23, GOLD)
-  c:triangle(x, y + 5, x + 23, y + 23, x + 8, y + 23, GOLD)
-  c:circle(x - 4, y + 11, 6, GOLD, {fill = false, width = 2})
-  c:circle(x + 35, y + 11, 6, GOLD, {fill = false, width = 2})
-  c:rect(x + 13, y + 23, 5, 7, GOLD)
-  c:rect(x + 6, y + 30, 19, 4, GOLD)
+  c:rect(x, y, 40, 6, GOLD)
+  c:triangle(x, y + 6, x + 40, y + 6, x + 30, y + 30, GOLD)
+  c:triangle(x, y + 6, x + 30, y + 30, x + 10, y + 30, GOLD)
+  c:circle(x - 5, y + 14, 8, GOLD, {fill = false, width = 3})
+  c:circle(x + 45, y + 14, 8, GOLD, {fill = false, width = 3})
+  c:rect(x + 17, y + 30, 6, 9, GOLD)
+  c:rect(x + 8, y + 39, 24, 5, GOLD)
 end
 
 local function draw_standings()
-  draw_trophy(46, 24)
+  draw_trophy(41, 22)
   c:text("CHAMPIONSHIP", 210, 28, PALE, 24, "center")
   if season then
     c:text(season .. " - after round " .. round, 176, 68, GOLD, 16,
@@ -580,14 +581,14 @@ local function draw_standings()
   local medals = {GOLD, 0xC0C0C0, 0xA9712F}
   for i, d in ipairs(top) do
     local y = 108 + (i - 1) * 76
-    c:rect(26, y, 5, 52, medals[i])
-    draw_flag(38, y + 8, d.nat)
-    c:text(i .. ". " .. d.code .. " - " .. d.name, 94, y + 2,
+    c:rect(16, y, 5, 52, medals[i])
+    draw_flag(28, y + 8, d.nat)
+    c:text(i .. ". " .. d.code .. " - " .. d.name, 84, y + 2,
            i == 1 and GOLD or PALE, 22, "left")
     c:text(d.team .. " - " .. d.pts .. " pts - " .. d.wins ..
-           (d.wins == 1 and " win" or " wins"), 94, y + 32,
+           (d.wins == 1 and " win" or " wins"), 84, y + 32,
            LAV, 18, "left")
-    if i < #top then c:line(26, y + 66, 306, y + 66, DIM, 1) end
+    if i < #top then c:line(16, y + 66, 296, y + 66, DIM, 1) end
   end
 end
 

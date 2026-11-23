@@ -187,9 +187,9 @@ for i = 1, 42 do
 end
 local clouds = {
   {x = 50, y = 158, s = 0.8, v = 0.35},
-  {x = 395, y = 170, s = 0.65, v = 0.5},
-  {x = 120, y = 215, s = 0.55, v = 0.25},
-  {x = 330, y = 228, s = 0.5, v = 0.42},
+  {x = 395, y = 170, s = 0.65, v = 0.35},
+  {x = 120, y = 215, s = 0.55, v = 0.35},
+  {x = 330, y = 228, s = 0.5, v = 0.35},
 }
 local rain = {}
 for i = 1, 34 do
@@ -228,7 +228,7 @@ local function paint_bg(x, y, w, h)
     local ty = math.max(by, y)
     local bh = math.min(by + 12, y2) - ty
     if bh > 0 then
-      if wx and ty >= 306 and ty < 394 then
+      if wx and ty >= 316 and ty < 400 then
         if x < 83 then
           c:rect(x, ty, math.min(x + w, 83) - x, bh,
                  sky_col_at(ty))
@@ -423,20 +423,22 @@ local function draw_temp()
   local w = wx
   local t = math.floor(w.temp + 0.5)
   local digits = #tostring(math.abs(t))
-  local tw = digits * 74 + (t < 0 and 41 or 0)
-  c:text(tostring(t), 233 - 16, 118, WHITE, 142, "center")
-  c:circle(233 - 16 + tw / 2 + 19, 140, 12, WHITE,
-           {fill = false, width = 6})
+  -- a digit is about 0.44 of the font size wide; the degree
+  -- ring hugs the number's right edge
+  local tw = digits * 88 + (t < 0 and 58 or 0)
+  c:text(tostring(t), 233 - 16, 76, WHITE, 200, "center")
+  c:circle(233 - 16 + tw / 2 + 20, 112, 14, WHITE,
+           {fill = false, width = 7})
 end
 local function draw_condition()
-  c:text(LABELS[wx.code] or "", 233, 237, WHITE, 21, "center")
+  c:text(LABELS[wx.code] or "", 233, 284, WHITE, 19, "center")
 end
 local function draw_hum()
-  c:text("Hum: " .. wx.hum .. "%", 163, 268, SOFT, 15, "center")
+  c:text("Hum: " .. wx.hum .. "%", 100, 288, SOFT, 15, "center")
 end
 local function draw_wind()
-  c:text("W: " .. math.floor(wx.wind + 0.5) .. " mph", 303,
-         268, SOFT, 15, "center")
+  c:text("W: " .. math.floor(wx.wind + 0.5) .. " mph", 366,
+         288, SOFT, 15, "center")
 end
 local function draw_hi()
   c:text("H: " .. math.floor(wx.hi + 0.5), 382, 176, WHITE,
@@ -450,9 +452,9 @@ local function draw_column(i)
   local h = wx.hours[i]
   if not h then return end
   local cx = 133 + (i - 1) * 100
-  c:text(hour_label(h.hour), cx, 314, SOFT, 13, "center")
-  draw_glyph(group_of(h.code), cx, 356, not wx.is_day)
-  c:text(tostring(h.temp), cx, 368, WHITE, 18, "center")
+  c:text(hour_label(h.hour), cx, 324, SOFT, 13, "center")
+  draw_glyph(group_of(h.code), cx, 366, not wx.is_day)
+  c:text(tostring(h.temp), cx, 376, WHITE, 18, "center")
 end
 local function draw_dots()
   for i = 1, #CITIES do
@@ -467,8 +469,8 @@ local function draw_content()
   if wx then
     draw_temp()
     draw_condition()
-    -- humidity and wind side by side on one line under the
-    -- temperature block; high and low stack on the right
+    -- humidity and wind flank the condition on its line;
+    -- high and low stack on the right
     draw_hum()
     draw_wind()
     draw_hi()
@@ -476,7 +478,7 @@ local function draw_content()
     -- the glass hourly panel, kept inside the round face
     -- and shifted up: only the next three hours, so each
     -- column is wide and the type can breathe
-    c:rect(83, 306, 300, 88, 0x0B1D38, {opacity = 105,
+    c:rect(83, 316, 300, 84, 0x0B1D38, {opacity = 105,
            radius = 16})
     local n = math.min(3, #wx.hours)
     for i = 1, n do draw_column(i) end
@@ -492,18 +494,18 @@ local zones = {
   {110, 46, 356, 102, function()
      c:text(CITIES[idx].name, 233, 58, WHITE, 36, "center")
    end},
-  {90, 106, 376, 260, function() if wx then draw_temp() end end},
-  {110, 228, 356, 262, function()
+  {100, 68, 410, 282, function() if wx then draw_temp() end end},
+  {150, 278, 316, 312, function()
      if wx then draw_condition() end end},
-  {83, 258, 243, 292, function() if wx then draw_hum() end end},
-  {223, 258, 383, 292, function() if wx then draw_wind() end end},
+  {40, 278, 170, 312, function() if wx then draw_hum() end end},
+  {296, 278, 436, 312, function() if wx then draw_wind() end end},
   {336, 166, 428, 198, function() if wx then draw_hi() end end},
   {336, 196, 428, 228, function() if wx then draw_lo() end end},
-  {83, 300, 183, 400, function()
+  {83, 310, 183, 406, function()
      if wx then draw_column(1) end end},
-  {183, 300, 283, 400, function()
+  {183, 310, 283, 406, function()
      if wx then draw_column(2) end end},
-  {283, 300, 383, 400, function()
+  {283, 310, 383, 406, function()
      if wx then draw_column(3) end end},
   {193, 418, 273, 440, function() draw_dots() end},
 }
@@ -581,20 +583,29 @@ local function draw_movers_frame()
     end
   end
 
+  -- all covers first, then all clouds: the clouds drift
+  -- in formation (one shared speed, so they never catch
+  -- each other up), and a cover painted after a neighbour
+  -- had already moved would erase part of that neighbour
+  -- wherever the two overlap
   local ccol, cop, ncloud = cloud_style(g, w.is_day)
   for i = 1, ncloud do
     local cl = clouds[i]
     local nx = math.floor(cl.x + 0.5)
+    if cl.dx ~= nx and cl.dx then
+      -- cover with a margin: a cover that ends exactly
+      -- at the shape's edge can leave a pale line of the
+      -- cloud behind where the edge was antialiased
+      paint_bg(cl.dx - 46 * cl.s - 5, cl.y - 30 * cl.s - 5,
+               92 * cl.s + 10, 56 * cl.s + 10)
+      touch(cl.dx - 46 * cl.s - 5, cl.y - 30 * cl.s - 5,
+            cl.dx + 46 * cl.s + 5, cl.y + 26 * cl.s + 5)
+    end
+  end
+  for i = 1, ncloud do
+    local cl = clouds[i]
+    local nx = math.floor(cl.x + 0.5)
     if cl.dx ~= nx then
-      if cl.dx then
-        -- cover with a margin: a cover that ends exactly
-        -- at the shape's edge can leave a pale line of the
-        -- cloud behind where the edge was antialiased
-        paint_bg(cl.dx - 46 * cl.s - 5, cl.y - 30 * cl.s - 5,
-                 92 * cl.s + 10, 56 * cl.s + 10)
-        touch(cl.dx - 46 * cl.s - 5, cl.y - 30 * cl.s - 5,
-              cl.dx + 46 * cl.s + 5, cl.y + 26 * cl.s + 5)
-      end
       draw_cloud(cl, ccol, cop)
       touch(nx - 46 * cl.s - 5, cl.y - 30 * cl.s - 5,
             nx + 46 * cl.s + 5, cl.y + 26 * cl.s + 5)
@@ -631,8 +642,8 @@ local function draw_movers_frame()
   if wx then
     for i = 1, touches_n do
       local t = touches[i]
-      local ix1, iy1 = math.max(t[1], 83), math.max(t[2], 306)
-      local ix2, iy2 = math.min(t[3], 383), math.min(t[4], 394)
+      local ix1, iy1 = math.max(t[1], 83), math.max(t[2], 316)
+      local ix2, iy2 = math.min(t[3], 383), math.min(t[4], 400)
       if ix2 > ix1 and iy2 > iy1 then
         paint_bg(ix1, iy1, ix2 - ix1, iy2 - iy1)
       end

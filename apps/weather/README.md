@@ -19,8 +19,8 @@ temperature (with a drawn degree ring, since the gadget
 fonts are ASCII only), the condition, and a translucent
 glass panel with the next three hours, each with its own
 small drawn glyph. The day's high and low stack on the
-right side; humidity and wind sit side by side on one
-line under the temperature.
+right side; humidity and wind flank the condition on its
+line, one to each side.
 
 The sky is alive on one native 466x466 canvas (424 KB),
 and the canvas runs in partial mode. (It began on a
@@ -39,7 +39,11 @@ edge survives, with the background that belongs there (the sky
 gradient, or the glass panel's blend inside the panel),
 the mover is drawn at its new spot, and any static a
 cover or a mover touched (a text line, the sun, a panel
-glyph) is repaired. Stars only repaint when they blink on
+glyph) is repaired. The clouds all drift at one shared
+speed, so they hold formation and never catch each other
+up, and a frame paints every cloud's cover before it
+draws any cloud, so a cover can never erase part of a
+neighbour that already moved. Stars only repaint when they blink on
 or off, batched twice a second, and the sun only repaints
 when its pulse step changes. Before this, the app
 repainted the whole scene every tick and managed 3 to 5
@@ -49,7 +53,9 @@ tick with about 3 ms of Lua, about 3 ms of drawing,
 about 6 ms of frame time, and roughly 37 KB sent per
 frame (the movers are spread across the whole sky, so
 the flushed region stays wide even though each mover is
-small). The temperature digits are drawn at size 142.
+small). The temperature digits are drawn at size 200,
+with the degree ring placed just past the digits' right
+edge (a digit runs about 0.44 of the font size wide).
 
 - Clear day: blue gradient, a glowing sun that slowly
   pulses, one drifting cloud.

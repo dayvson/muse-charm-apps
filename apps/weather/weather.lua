@@ -419,16 +419,65 @@ end
 -- the static content pieces, shared by the full draw and
 -- by the repair pass (a piece is redrawn when a mover or
 -- a cover touched its area)
+-- the temperature digits are drawn as shapes, not text:
+-- canvas text stops growing past roughly size 48 (a size
+-- 200 temperature photographed the same height as the
+-- size 36 city name), so the only way to get a genuinely
+-- big number is to draw it. Segment digits on a 69x126
+-- cell, stroke 15, with dots on the joints (a first cut
+-- at 92x168 photographed too huge and came down 25%)
+local SEG = {
+  [0] = {a = 1, b = 1, c = 1, d = 1, e = 1, f = 1},
+  [1] = {b = 1, c = 1},
+  [2] = {a = 1, b = 1, g = 1, e = 1, d = 1},
+  [3] = {a = 1, b = 1, c = 1, d = 1, g = 1},
+  [4] = {f = 1, g = 1, b = 1, c = 1},
+  [5] = {a = 1, f = 1, g = 1, c = 1, d = 1},
+  [6] = {a = 1, f = 1, g = 1, e = 1, c = 1, d = 1},
+  [7] = {a = 1, b = 1, c = 1},
+  [8] = {a = 1, b = 1, c = 1, d = 1, e = 1, f = 1, g = 1},
+  [9] = {a = 1, b = 1, c = 1, d = 1, f = 1, g = 1},
+}
+local function draw_digit(d, x, y)
+  local s = SEG[d]
+  if s.a then c:line(x + 12, y + 8, x + 57, y + 8, WHITE, 15) end
+  if s.g then c:line(x + 12, y + 63, x + 57, y + 63, WHITE, 15) end
+  if s.d then c:line(x + 12, y + 118, x + 57, y + 118, WHITE, 15) end
+  if s.f then c:line(x + 8, y + 12, x + 8, y + 59, WHITE, 15) end
+  if s.b then c:line(x + 61, y + 12, x + 61, y + 59, WHITE, 15) end
+  if s.e then c:line(x + 8, y + 68, x + 8, y + 114, WHITE, 15) end
+  if s.c then c:line(x + 61, y + 68, x + 61, y + 114, WHITE, 15) end
+  if s.a or s.f then
+    c:circle(x + 8, y + 8, 8, WHITE, {fill = true}) end
+  if s.a or s.b then
+    c:circle(x + 61, y + 8, 8, WHITE, {fill = true}) end
+  if s.f or s.e or s.g then
+    c:circle(x + 8, y + 63, 8, WHITE, {fill = true}) end
+  if s.b or s.c or s.g then
+    c:circle(x + 61, y + 63, 8, WHITE, {fill = true}) end
+  if s.e or s.d then
+    c:circle(x + 8, y + 118, 8, WHITE, {fill = true}) end
+  if s.c or s.d then
+    c:circle(x + 61, y + 118, 8, WHITE, {fill = true}) end
+end
 local function draw_temp()
-  local w = wx
-  local t = math.floor(w.temp + 0.5)
-  local digits = #tostring(math.abs(t))
-  -- a digit is about 0.44 of the font size wide; the degree
-  -- ring hugs the number's right edge
-  local tw = digits * 88 + (t < 0 and 58 or 0)
-  c:text(tostring(t), 233 - 16, 76, WHITE, 200, "center")
-  c:circle(233 - 16 + tw / 2 + 20, 112, 14, WHITE,
-           {fill = false, width = 7})
+  local t = math.floor(wx.temp + 0.5)
+  local str = tostring(math.abs(t))
+  local n = #str
+  local total = n * 69 + (n - 1) * 17 + (t < 0 and 35 or 0)
+  local x = 217 - total / 2
+  local y = 105
+  if t < 0 then
+    c:line(x + 3, y + 63, x + 29, y + 63, WHITE, 11)
+    x = x + 35
+  end
+  for i = 1, n do
+    draw_digit(tonumber(str:sub(i, i)),
+               x + (i - 1) * 86, y)
+  end
+  -- the degree ring hugs the last digit's right edge
+  c:circle(217 + total / 2 + 23, y + 18, 11, WHITE,
+           {fill = false, width = 6})
 end
 local function draw_condition()
   c:text(LABELS[wx.code] or "", 233, 284, WHITE, 19, "center")
@@ -494,7 +543,7 @@ local zones = {
   {110, 46, 356, 102, function()
      c:text(CITIES[idx].name, 233, 58, WHITE, 36, "center")
    end},
-  {100, 68, 410, 282, function() if wx then draw_temp() end end},
+  {80, 97, 400, 239, function() if wx then draw_temp() end end},
   {150, 278, 316, 312, function()
      if wx then draw_condition() end end},
   {40, 278, 170, 312, function() if wx then draw_hum() end end},

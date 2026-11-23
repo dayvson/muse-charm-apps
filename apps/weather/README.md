@@ -53,9 +53,11 @@ tick with about 3 ms of Lua, about 3 ms of drawing,
 about 6 ms of frame time, and roughly 37 KB sent per
 frame (the movers are spread across the whole sky, so
 the flushed region stays wide even though each mover is
-small). The temperature digits are drawn at size 200,
-with the degree ring placed just past the digits' right
-edge (a digit runs about 0.44 of the font size wide).
+small). The temperature is not text at all: canvas text
+saturates at about 48 px tall no matter what size is
+asked for, so each digit is drawn as seven-segment style
+shapes (a 69x126 cell, stroke 15, dots on the joints),
+with the degree ring drawn just past the last digit.
 
 - Clear day: blue gradient, a glowing sun that slowly
   pulses, one drifting cloud.

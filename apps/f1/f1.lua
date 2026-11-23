@@ -401,6 +401,23 @@ local function build_path(cid)
     pts[i] = {cx + (p[1] - 50) / 50 * hx,
               cy + (p[2] - 50) / 50 * hy}
   end
+  -- smooth the hand-traced polygon before use: two rounds
+  -- of Chaikin corner cutting turn the coarse tracing into
+  -- a curve of short segments, so the road reads as one
+  -- smooth ribbon instead of a chain of straight strokes
+  -- with corners. The car rides the same smoothed points
+  for _ = 1, 2 do
+    local sm = {}
+    for i = 1, #pts do
+      local a = pts[i]
+      local b = pts[i % #pts + 1]
+      sm[#sm + 1] = {a[1] * 0.75 + b[1] * 0.25,
+                     a[2] * 0.75 + b[2] * 0.25}
+      sm[#sm + 1] = {a[1] * 0.25 + b[1] * 0.75,
+                     a[2] * 0.25 + b[2] * 0.75}
+    end
+    pts = sm
+  end
   for i = 1, #pts do
     local a, b = pts[i], pts[i % #pts + 1]
     local dx, dy = b[1] - a[1], b[2] - a[2]
@@ -480,8 +497,17 @@ local function cover_car()
       local a = path.pts[i]
       local b = path.pts[i % #path.pts + 1]
       local hit = false
+      -- cheap bounding-box reject first: with the smoothed
+      -- path at 50+ segments, running the exact distance
+      -- test for every segment and spot cost real frame
+      -- time; most segments are nowhere near the car
+      local x1 = math.min(a[1], b[1]) - 18
+      local x2 = math.max(a[1], b[1]) + 18
+      local y1 = math.min(a[2], b[2]) - 18
+      local y2 = math.max(a[2], b[2]) + 18
       for _, s in ipairs(prev_car) do
-        if seg_dist(s[1], s[2], a, b) < s[3] + 4 + 8 then
+        if s[1] > x1 and s[1] < x2 and s[2] > y1 and s[2] < y2
+           and seg_dist(s[1], s[2], a, b) < s[3] + 4 + 8 then
           hit = true break
         end
       end

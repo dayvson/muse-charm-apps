@@ -31,36 +31,29 @@ local CITIES = {
 local WHITE = 0xFFFFFF
 local SOFT = 0xDCE9F7
 
--- the drawing surface is a 233x233 canvas at zoom 2 (106 KB
--- instead of 424 KB at full size). All drawing code works
--- in 466 screen space; this proxy halves coordinates and
--- sizes into canvas pixels. yoff slides the content (not
--- the sky) during a city change.
+-- the drawing surface is one full-screen 466x466 canvas
+-- at zoom 1, created first. An earlier build drew on a
+-- 233x233 canvas at zoom 2 through a halving proxy, but
+-- the scaled pixels looked coarse and the halved cover
+-- rects rounded a pixel short, so movers left pale trails
+-- and the scene shimmered. All drawing code works in
+-- screen space; the thin proxy below only adds yoff,
+-- which slides the content (not the sky) during a city
+-- change.
 local touch_fn = nil
 local raw = ui.canvas{
-  w = 233, h = 233, zoom = 2, color = 0x101D3D,
+  w = 466, h = 466, color = 0x101D3D,
   on_touch = function(kind, x, y)
     if touch_fn then touch_fn(kind, x, y) end
   end,
 }
 raw:partial(true)
 local yoff = 0
-local function px(v) return v / 2 end
-local function py(v) return (v + yoff) / 2 end
-local function half(v) return v / 2 end
-local function wdt(w)
-  if not w then return w end
-  return math.max(1, math.floor(w / 2 + 0.5))
-end
-local function opts(o)
-  if o and o.width then
-    local n = {}
-    for k, v in pairs(o) do n[k] = v end
-    n.width = wdt(o.width)
-    return n
-  end
-  return o
-end
+local function px(v) return v end
+local function py(v) return v + yoff end
+local function half(v) return v end
+local function wdt(w) return w end
+local function opts(o) return o end
 local c = {}
 function c:clear(col) raw:clear(col) end
 function c:rect(x, y, w, h, col, o)
@@ -430,10 +423,10 @@ local function draw_temp()
   local w = wx
   local t = math.floor(w.temp + 0.5)
   local digits = #tostring(math.abs(t))
-  local tw = digits * 62 + (t < 0 and 34 or 0)
-  c:text(tostring(t), 233 - 16, 128, WHITE, 118, "center")
-  c:circle(233 - 16 + tw / 2 + 16, 146, 10, WHITE,
-           {fill = false, width = 5})
+  local tw = digits * 74 + (t < 0 and 41 or 0)
+  c:text(tostring(t), 233 - 16, 118, WHITE, 142, "center")
+  c:circle(233 - 16 + tw / 2 + 19, 140, 12, WHITE,
+           {fill = false, width = 6})
 end
 local function draw_condition()
   c:text(LABELS[wx.code] or "", 233, 237, WHITE, 21, "center")
@@ -499,7 +492,7 @@ local zones = {
   {110, 46, 356, 102, function()
      c:text(CITIES[idx].name, 233, 58, WHITE, 36, "center")
    end},
-  {100, 118, 366, 252, function() if wx then draw_temp() end end},
+  {90, 106, 376, 260, function() if wx then draw_temp() end end},
   {110, 228, 356, 262, function()
      if wx then draw_condition() end end},
   {83, 258, 243, 292, function() if wx then draw_hum() end end},
@@ -571,19 +564,19 @@ local function draw_movers_frame()
       local on = star_alpha(s) > 40
       if on ~= s.on then
         if s.on then
-          paint_bg(s.x - 3, s.y - 3, 6, 6)
-          touch(s.x - 3, s.y - 3, s.x + 3, s.y + 3)
+          paint_bg(s.x - 4, s.y - 4, 8, 8)
+          touch(s.x - 4, s.y - 4, s.x + 4, s.y + 4)
         end
         draw_star(s)
-        if s.on then touch(s.x - 3, s.y - 3, s.x + 3, s.y + 3) end
+        if s.on then touch(s.x - 4, s.y - 4, s.x + 4, s.y + 4) end
       end
     end
   end
 
   if w.is_day and (g == "clear" or g == "partly") then
     if pulse_amt() ~= prev_pulse then
-      paint_bg(304, 54, 128, 128)
-      touch(304, 54, 432, 182)
+      paint_bg(302, 52, 132, 132)
+      touch(302, 52, 434, 184)
       draw_sun(368, 118)
     end
   end
@@ -594,14 +587,17 @@ local function draw_movers_frame()
     local nx = math.floor(cl.x + 0.5)
     if cl.dx ~= nx then
       if cl.dx then
-        paint_bg(cl.dx - 46 * cl.s, cl.y - 30 * cl.s,
-                 92 * cl.s, 56 * cl.s)
-        touch(cl.dx - 46 * cl.s, cl.y - 30 * cl.s,
-              cl.dx + 46 * cl.s, cl.y + 26 * cl.s)
+        -- cover with a margin: a cover that ends exactly
+        -- at the shape's edge can leave a pale line of the
+        -- cloud behind where the edge was antialiased
+        paint_bg(cl.dx - 46 * cl.s - 5, cl.y - 30 * cl.s - 5,
+                 92 * cl.s + 10, 56 * cl.s + 10)
+        touch(cl.dx - 46 * cl.s - 5, cl.y - 30 * cl.s - 5,
+              cl.dx + 46 * cl.s + 5, cl.y + 26 * cl.s + 5)
       end
       draw_cloud(cl, ccol, cop)
-      touch(nx - 46 * cl.s, cl.y - 30 * cl.s,
-            nx + 46 * cl.s, cl.y + 26 * cl.s)
+      touch(nx - 46 * cl.s - 5, cl.y - 30 * cl.s - 5,
+            nx + 46 * cl.s + 5, cl.y + 26 * cl.s + 5)
     end
   end
 
@@ -619,8 +615,8 @@ local function draw_movers_frame()
   if g == "snow" then
     for _, s in ipairs(snow) do
       if s.px then
-        paint_bg(s.px - s.r - 2, s.py - s.r - 2,
-                 2 * s.r + 4, 2 * s.r + 4)
+        paint_bg(s.px - s.r - 3, s.py - s.r - 3,
+                 2 * s.r + 6, 2 * s.r + 6)
         touch(s.px - s.r - 2, s.py - s.r - 2,
               s.px + s.r + 2, s.py + s.r + 2)
       end

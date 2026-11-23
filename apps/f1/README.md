@@ -27,11 +27,22 @@ ribbon, measured by the exact distance from the disc centre
 to the segment (not a midpoint guess), and a joint disc is
 drawn at every vertex, in the full draw and in repairs, so
 the ribbon reads as one continuous road where the segments
-meet instead of a chain of separate strokes. The 48 ring
+meet instead of a chain of separate strokes. The traced
+outlines themselves are coarse (13 to 16 hand points, with
+straights up to 68 px), so before use the path is smoothed
+with two rounds of Chaikin corner cutting, which turns
+each circuit into 52 to 64 points with segments of about
+16 px: the road is then a smooth curve rather than a
+polygon with corners, and the car rides the same smoothed
+points. With that many segments, the repair's exact
+distance test runs behind a cheap bounding-box reject so
+it only measures segments near the car. The 48 ring
 segment positions are computed once at start-up instead of
 on every repaint. The loop runs every 33 ms and measures
-about 30 fps with roughly 10 to 11 KB sent and 1.3 to 1.4
-ms of frame time per frame; on the earlier firmware, where
+about 30 fps with roughly 5 to 6 KB sent, about 1.1 ms of
+frame time and about 13 to 14 ms of Lua per frame (the
+smoothed path's repair pass is the Lua cost); on the
+earlier firmware, where
 partial never really took effect, the same build sent the
 whole 424 KB canvas per frame and the flush alone held it
 to 20 fps at 46 ms per frame.

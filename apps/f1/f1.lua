@@ -977,11 +977,11 @@ ui.after(1200, fetch_race)
 -- same tick runs the start-lights sequence: if the app is
 -- open in the two minutes after lights out (and has not
 -- played it for this race), the five lights run once.
-ui.every(50, function()
+ui.every(33, function()
   local now = time.now()
   local dt = now - last_tick
   last_tick = now
-  if dt < 0 or dt > 0.25 then dt = 0.05 end
+  if dt < 0 or dt > 0.25 then dt = 0.033 end
   if lights > 0 then
     lights = lights + 1
     if lights == 49 then sound.effect("powerup", {volume = 50}) end

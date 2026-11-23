@@ -129,21 +129,19 @@ local function handle_touch(kind, x, y)
 end
 
 -- the drawing surface is a 400x400 canvas at zoom 1: the
--- perf readout showed a zoomed canvas costs about 36 ms
--- extra per frame in the compositor (frame_ms 81 at zoom 2
--- against 45 native, same scene), so the game draws in its
--- own 400-wide space with no scaling proxy; touches arrive
--- in the same coordinates
+-- game draws in its own 400-wide space with no scaling
+-- proxy; touches arrive in the same coordinates
 local raw = ui.canvas{
   w = 400, h = 400, color = BG,
   on_touch = function(kind, x, y)
     handle_touch(kind, x, y)
   end,
 }
--- partial frames: only the areas painted since the last clear
--- (plus the previous frame's) go to the screen; the moving
--- parts here are small on a plain background, so frames cost
--- a fraction of a full canvas send
+-- partial frames, cover-based: the scene is painted once,
+-- then each frame paints over the movers' old spots and
+-- draws them at the new ones; only those spots go to the
+-- screen. No per-frame clear: a clear wipes the whole
+-- canvas, bricks and walls included
 raw:partial(true)
 local c = raw
 
@@ -236,16 +234,39 @@ local function draw_state_text()
   drawn_state = state
 end
 
--- partial-frame drawing: every frame starts with c:clear(),
--- which resets the firmware's dirty window; only what this
--- frame paints (plus last frame's painted areas, re-sent so
--- movers leave no trail) goes to the screen. So a frame
--- paints the two movers and nothing else; the bricks, walls
--- and texts stay on the panel from the frame that painted
--- them, and a static is repainted only when it changes: a
--- dead brick is covered once, a changed HUD line redrawn
--- once, the state text swapped on transitions. A full
--- repaint happens on the first frame and on new levels.
+-- cover-based partial drawing: the scene is painted once
+-- (the first frame, and again on new levels after a clear
+-- plus a full repaint); every other frame paints over the
+-- movers' old spots, repairs any static a cover touched (a
+-- wall line, a brick, a text line), and draws the movers at
+-- their new spots. A static is repainted only when it
+-- changes: a dead brick is covered once, a changed HUD line
+-- is covered and redrawn once, the state text is swapped on
+-- transitions. A frame where nothing changed paints nothing
+-- at all, and a callback that draws nothing costs nothing.
+local prev_bx, prev_by, prev_px = -1, -1, -1
+local covers = {}
+local covers_n = 0
+
+local function add_cover_rect(x, y, w, h)
+  covers_n = covers_n + 1
+  local cv = covers[covers_n]
+  if not cv then cv = {} covers[covers_n] = cv end
+  cv.x, cv.y, cv.w, cv.h = x, y, w, h
+  raw:rect(x, y, w, h, BG, FILL_O)
+end
+
+local function cover_touched(x, y, w, h)
+  for i = 1, covers_n do
+    local cv = covers[i]
+    if x < cv.x + cv.w + 1 and cv.x < x + w + 1
+       and y < cv.y + cv.h + 1 and cv.y < y + h + 1 then
+      return true
+    end
+  end
+  return false
+end
+
 local function draw()
   local hud_changed = false
   if score ~= last_score then
@@ -264,8 +285,12 @@ local function draw()
     hud_changed = true
   end
 
-  c:clear(BG)
+  local dbx = math.floor(bx + 0.5)
+  local dby = math.floor(by + 0.5)
+  local dpx = math.floor(paddle_x + 0.5)
+
   if need_full then
+    c:clear(BG)
     draw_hud()
     draw_walls()
     for _, b in ipairs(bricks) do
@@ -277,31 +302,66 @@ local function draw()
     need_full = false
     pending_brick = nil
   else
+    local moved = dbx ~= prev_bx or dby ~= prev_by or dpx ~= prev_px
+    if not moved and not pending_brick and not hud_changed
+       and state == drawn_state then
+      return -- nothing changed: paint nothing
+    end
+    covers_n = 0
     if pending_brick then
-      raw:rect(pending_brick.x, pending_brick.y,
-               BRICK_W, BRICK_H, BG, FILL_O)
+      add_cover_rect(pending_brick.x, pending_brick.y,
+                     BRICK_W, BRICK_H)
       pending_brick = nil
     end
-    if hud_changed then
-      raw:rect(0, 8, 400, 26, BG, FILL_O)
+    if hud_changed then add_cover_rect(0, 8, 400, 26) end
+    if state ~= drawn_state then add_cover_rect(50, 196, 300, 124) end
+    if dpx ~= prev_px then
+      add_cover_rect(prev_px - PADDLE_W / 2, PADDLE_Y,
+                     PADDLE_W, PADDLE_H)
+    end
+    if dbx ~= prev_bx or dby ~= prev_by then
+      covers_n = covers_n + 1
+      local cv = covers[covers_n]
+      if not cv then cv = {} covers[covers_n] = cv end
+      cv.x, cv.y = prev_bx - BALL_R - 2, prev_by - BALL_R - 2
+      cv.w, cv.h = 2 * BALL_R + 4, 2 * BALL_R + 4
+      raw:circle(prev_bx, prev_by, BALL_R + 2, BG, FILL_O)
+    end
+    -- repairs: any static a cover touched is drawn again
+    if cover_touched(LEFT - 1, TOP - 1, RIGHT - LEFT + 2, 3)
+       or cover_touched(LEFT - 1, TOP, 3, 392 - TOP)
+       or cover_touched(RIGHT - 1, TOP, 3, 392 - TOP) then
+      draw_walls()
+    end
+    for _, b in ipairs(bricks) do
+      if b.alive and cover_touched(b.x, b.y, BRICK_W, BRICK_H) then
+        raw:rect(b.x, b.y, BRICK_W, BRICK_H, b.color, BRICK_O)
+      end
+    end
+    if hud_changed or cover_touched(0, 8, 400, 26) then
       draw_hud()
     end
     if state ~= drawn_state then
-      raw:rect(50, 196, 300, 116, BG, FILL_O)
+      draw_state_text()
+    elseif (state == "ready" or state == "over")
+       and cover_touched(50, 196, 300, 124) then
       draw_state_text()
     end
   end
-  raw:rect(paddle_x - PADDLE_W / 2, PADDLE_Y,
+  raw:rect(dpx - PADDLE_W / 2, PADDLE_Y,
            PADDLE_W, PADDLE_H, PALE, PADDLE_O)
-  raw:circle(bx, by, BALL_R, GOLD, BALL_O)
+  raw:circle(dbx, dby, BALL_R, GOLD, BALL_O)
+  prev_bx, prev_by, prev_px = dbx, dby, dpx
 end
 
--- the frame rate is set by the screen flush, not the timer,
--- so physics runs on elapsed time: the ball advances as far
--- per second at 17 fps as it did in the 30 fps design, in
--- two substeps so it cannot tunnel through a brick
+-- physics runs on elapsed time, not on the tick count:
+-- the ball advances as far per second whatever the frame
+-- rate is, in two substeps so it cannot tunnel through a
+-- brick. The loop runs at the 16 ms timer floor; with
+-- cover-based partial frames costing about a millisecond,
+-- the tick rate is the frame rate
 local last_t = 0
-ui.every(20, function()
+ui.every(16, function()
   local now = time.now()
   local dt = now - last_t
   last_t = now

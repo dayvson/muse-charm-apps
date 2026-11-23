@@ -25,19 +25,24 @@ is lost, and win/lose stingers at the end of a level and the game.
 ## How it is built
 
 One native 400x400 canvas (the game's own coordinate space, no
-scaling proxy), redrawn from a 20 ms timer. The canvas is in
-partial mode: every frame starts with a clear and paints only
-the paddle, the ball and whatever changed (a broken brick, the
-score line), so a frame sends a fraction of the scene. Physics
-runs on elapsed time rather than a fixed step, so the game
-speed holds whatever the frame rate is, and the ball still
-moves in sub-steps so it cannot tunnel through bricks at high
-speed; brick bounces reflect off the side the ball actually
-came from. On the speed firmware this build measures about
-24 fps with 1.3 ms of Lua and 8 ms of drawing per frame,
-against 11 fps, 14 ms and 8 ms for the build it replaced
-(a 200x200 canvas at zoom 2 repainted in full every frame:
-the zoom compositor alone cost more than the game).
+scaling proxy), driven from a 16 ms timer. The canvas is in
+partial mode and the drawing is cover-based: the scene is
+painted once, then each frame paints over the paddle's and
+the ball's old spots, repairs any static a cover touched (a
+wall line, a brick, a text line), and draws the two movers at
+their new spots; a frame where nothing changed paints
+nothing at all. Physics runs on elapsed time rather than a
+fixed step, so the game speed holds whatever the frame rate
+is, and the ball still moves in sub-steps so it cannot tunnel
+through bricks at high speed; brick bounces reflect off the
+side the ball actually came from. In play this measures
+about 62 fps with 1.8 ms of Lua and 0.8 ms of drawing per
+frame and 3 to 9 KB sent per frame, against 24 fps and
+315 KB per frame for the clear-and-repaint build it replaced
+(on the earlier firmware partial never really took effect,
+so every frame re-sent the whole canvas; a clear per frame
+would now wipe the bricks and walls off the canvas, which
+is why the cover pattern is the one that works).
 
 ## Icon
 

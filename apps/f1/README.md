@@ -23,10 +23,12 @@ are covered, the track under them is repaired, and the car
 is drawn at its new position, advanced by elapsed time so
 the lap stays 4.5 seconds at any frame rate. The 48 ring
 segment positions are computed once at start-up instead of
-on every repaint. On the speed firmware this measures about
-20 fps with 4 ms of drawing per frame, against 11 fps and
-37 ms for the full-repaint build it replaced; the remaining
-frame cost is the full-screen flush itself.
+on every repaint. The loop runs every 33 ms and measures
+about 30 fps with roughly 11 KB sent and 1.4 ms of frame
+time per frame; on the earlier firmware, where partial
+never really took effect, the same build sent the whole
+424 KB canvas per frame and the flush alone held it to
+20 fps at 46 ms per frame.
 
 ## The four screens
 

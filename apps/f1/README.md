@@ -15,6 +15,19 @@ KB used with well over 1 MB still free. Swipe or tap to
 move between the four screens; the four dots at the bottom
 show where you are.
 
+The canvas is in partial mode and the frame loop is stingy:
+the whole scene repaints only when something static actually
+changes (the countdown text, a ring segment, fresh data),
+and on every other tick only the car moves: its old spots
+are covered, the track under them is repaired, and the car
+is drawn at its new position, advanced by elapsed time so
+the lap stays 4.5 seconds at any frame rate. The 48 ring
+segment positions are computed once at start-up instead of
+on every repaint. On the speed firmware this measures about
+20 fps with 4 ms of drawing per frame, against 11 fps and
+37 ms for the full-repaint build it replaced; the remaining
+frame cost is the full-screen flush itself.
+
 ## The four screens
 
 - Next race: the Grand Prix name over a big drawn outline of

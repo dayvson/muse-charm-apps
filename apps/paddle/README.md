@@ -24,12 +24,20 @@ is lost, and win/lose stingers at the end of a level and the game.
 
 ## How it is built
 
-One 200x200 canvas shown at zoom 2 (80 KB), redrawn every 33 ms
-(about 30 fps); a small proxy halves the game's 400-wide
-coordinates into canvas pixels and doubles touches back. The ball
-moves in two sub-steps per frame so it cannot tunnel through bricks
-at high speed, and brick bounces reflect off the side the ball
-actually came from.
+One native 400x400 canvas (the game's own coordinate space, no
+scaling proxy), redrawn from a 20 ms timer. The canvas is in
+partial mode: every frame starts with a clear and paints only
+the paddle, the ball and whatever changed (a broken brick, the
+score line), so a frame sends a fraction of the scene. Physics
+runs on elapsed time rather than a fixed step, so the game
+speed holds whatever the frame rate is, and the ball still
+moves in sub-steps so it cannot tunnel through bricks at high
+speed; brick bounces reflect off the side the ball actually
+came from. On the speed firmware this build measures about
+24 fps with 1.3 ms of Lua and 8 ms of drawing per frame,
+against 11 fps, 14 ms and 8 ms for the build it replaced
+(a 200x200 canvas at zoom 2 repainted in full every frame:
+the zoom compositor alone cost more than the game).
 
 ## Icon
 

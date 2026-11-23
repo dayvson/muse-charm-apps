@@ -84,6 +84,7 @@ local raw = ui.canvas{
     if touch_fn then touch_fn(kind, x, y) end
   end,
 }
+raw:partial(true)
 local function px(v) return v + 57 end
 local function half(v) return v end
 local function wdt(w) return w end
@@ -124,6 +125,9 @@ local state = "offline" -- live, saved, offline
 local screen = 1
 local path = nil   -- {pts, cum, total, cid} for the lap animation
 local anim_dist = 0
+local prev_car = nil -- last drawn {x, y, r, col} car and trail spots
+local last_cd, last_lit, last_st = nil, -1, nil
+local last_tick = 0
 local lights = 0   -- start-lights sequence tick, 0 = not running
 
 do
@@ -421,6 +425,64 @@ local function point_at(d)
   return path.pts[1][1], path.pts[1][2]
 end
 
+-- the moving layer: three trail ghosts and the car head,
+-- each riding the track. Their spots are kept so the next
+-- frame can cover exactly those spots and repair the track
+-- under them, instead of repainting the whole scene
+local function car_spots()
+  local spots = {}
+  for k = 3, 1, -1 do
+    local x, y = point_at(anim_dist - k * 8)
+    spots[#spots + 1] = {x, y, 6 - k, TRAIL[k]}
+  end
+  local hx, hy = point_at(anim_dist)
+  spots[#spots + 1] = {hx, hy, 6, CAR}
+  return spots
+end
+
+local function draw_car()
+  if not path then prev_car = nil return end
+  local spots = car_spots()
+  for _, s in ipairs(spots) do
+    c:circle(s[1], s[2], s[3], s[4], {fill = true})
+  end
+  prev_car = spots
+end
+
+-- cover the car's previous spots with background, then
+-- redraw the track segments (both passes, plus the start
+-- dot) that the covers touched
+local function cover_car()
+  if not (path and prev_car) then return end
+  for _, s in ipairs(prev_car) do
+    c:circle(s[1], s[2], s[3] + 4, BG, {fill = true})
+  end
+  local function near(x, y)
+    for _, s in ipairs(prev_car) do
+      local dx, dy = x - s[1], y - s[2]
+      if dx * dx + dy * dy < 484 then return true end
+    end
+    return false
+  end
+  for pass = 1, 2 do
+    local col = (pass == 1) and ROAD or PALE
+    local w = (pass == 1) and 11 or 2
+    for i = 1, #path.pts do
+      local a = path.pts[i]
+      local b = path.pts[i % #path.pts + 1]
+      if near((a[1] + b[1]) / 2, (a[2] + b[2]) / 2)
+         or near(a[1], a[2]) or near(b[1], b[2]) then
+        c:line(a[1], a[2], b[1], b[2], col, w)
+      end
+    end
+  end
+  if near(path.pts[1][1], path.pts[1][2]) then
+    c:circle(path.pts[1][1], path.pts[1][2], 4, 0xFFFFFF,
+             {fill = true})
+  end
+  prev_car = nil
+end
+
 local function draw_outline(cid)
   if not OUTLINES[cid] then
     -- no tracing for this circuit yet: a location pin instead
@@ -441,36 +503,39 @@ local function draw_outline(cid)
   end
   c:circle(path.pts[1][1], path.pts[1][2], 4, 0xFFFFFF,
            {fill = true})
-  for k = 3, 1, -1 do
-    local x, y = point_at(anim_dist - k * 8)
-    c:circle(x, y, 6 - k, TRAIL[k], {fill = true})
-  end
-  local hx, hy = point_at(anim_dist)
-  c:circle(hx, hy, 6, CAR, {fill = true})
+  draw_car()
 end
 
 -- a segmented ring near the edge of the screen: 48 segments,
 -- lit from the top clockwise for the share of the last seven
 -- days still to go before lights out; gold, then red inside
 -- the last day, and fully red while the race is on
+-- segment positions on the ring, computed once: the frame
+-- loop used to redo this trig on every repaint
+local SEG_POS = {}
+for i = 0, 47 do
+  local a = -math.pi / 2 + (i + 0.5) * 2 * math.pi / 48
+  SEG_POS[i] = {176 + 220 * math.cos(a), 176 + 220 * math.sin(a)}
+end
+
+-- how many ring segments are lit, and in which colour; the
+-- frame loop keys its full repaints on this (and on the
+-- countdown text) so a static screen costs nothing
+local function seg_state(epoch)
+  if not epoch then return 0, GOLD end
+  local diff = epoch - time.now()
+  if diff <= 0 then return 48, RED end
+  local frac = diff / (7 * 86400)
+  if frac > 1 then frac = 1 end
+  return math.ceil(frac * 48), (diff <= 86400) and RED or GOLD
+end
+
 local function draw_segs(epoch)
   if not epoch then return end
-  local diff = epoch - time.now()
-  local frac, col
-  if diff <= 0 then
-    frac, col = 1, RED
-  else
-    frac = diff / (7 * 86400)
-    if frac > 1 then frac = 1 end
-    col = (diff <= 86400) and RED or GOLD
-  end
-  local n = 48
-  local lit = math.ceil(frac * n)
-  for i = 0, n - 1 do
-    local a = -math.pi / 2 + (i + 0.5) * 2 * math.pi / n
-    local x = 176 + 220 * math.cos(a)
-    local y = 176 + 220 * math.sin(a)
-    c:rect(x - 3, y - 3, 6, 6, (i < lit) and col or 0x1C1C24)
+  local lit, col = seg_state(epoch)
+  for i = 0, 47 do
+    local p = SEG_POS[i]
+    c:rect(p[1] - 3, p[2] - 3, 6, 6, (i < lit) and col or 0x1C1C24)
   end
 end
 
@@ -913,6 +978,10 @@ ui.after(1200, fetch_race)
 -- open in the two minutes after lights out (and has not
 -- played it for this race), the five lights run once.
 ui.every(50, function()
+  local now = time.now()
+  local dt = now - last_tick
+  last_tick = now
+  if dt < 0 or dt > 0.25 then dt = 0.05 end
   if lights > 0 then
     lights = lights + 1
     if lights == 49 then sound.effect("powerup", {volume = 50}) end
@@ -921,7 +990,6 @@ ui.every(50, function()
     return
   end
   if race and store.get("lights") ~= race.epoch then
-    local now = time.now()
     if now >= race.epoch and now <= race.epoch + 120 then
       store.set("lights", race.epoch)
       screen = 1
@@ -930,9 +998,25 @@ ui.every(50, function()
       return
     end
   end
-  if screen == 1 and path then
-    anim_dist = anim_dist + path.total * 50 / 4500
-    draw()
+  if screen == 1 then
+    -- the statics on this screen (countdown text, ring
+    -- segments, live/saved state) change rarely, so the
+    -- whole scene repaints only when one of them does; on
+    -- every other tick only the car moves: cover its old
+    -- spots, repair the track under them and draw it at its
+    -- new distance. The lap advance runs on elapsed time,
+    -- so the 4.5 second lap holds whatever the frame rate is
+    local disp = (after_mode and after) or race
+    local cd = disp and countdown(disp.epoch) or "nodata"
+    local lit = seg_state(disp and disp.epoch)
+    if cd ~= last_cd or lit ~= last_lit or state ~= last_st then
+      last_cd, last_lit, last_st = cd, lit, state
+      draw()
+    elseif path then
+      anim_dist = anim_dist + path.total * dt / 4.5
+      cover_car()
+      draw_car()
+    end
   end
 end)
 ui.every(60000, draw)

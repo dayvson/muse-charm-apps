@@ -1,6 +1,6 @@
 -- Paddle Ball: an original brick-breaking game for the round screen.
 -- Drag to move the paddle, tap to launch the ball, clear every brick.
--- Drawn on a canvas at 30 fps; sound effects on bounces and breaks.
+-- Partial-frame canvas drawing; sound effects on bounces and breaks.
 
 local BG = 0x101014
 local WALL = 0x2C2C34
@@ -29,9 +29,15 @@ local target_x = 200
 local bx, by, vx, vy = 200, 0, 0, 0
 local speed = 5.0
 local bricks = {}
+-- frame-painting state for partial updates: what the last
+-- frame actually drew, so the next one repaints only changes
+local pending_brick = nil
+local need_full = true
+local drawn_state = ""
 
 local function build_bricks()
   bricks = {}
+  need_full = true
   for r = 1, ROWS do
     for c = 1, COLS do
       bricks[#bricks + 1] = {
@@ -122,46 +128,29 @@ local function handle_touch(kind, x, y)
   end
 end
 
--- the drawing surface is a 200x200 canvas shown at zoom 2,
--- so it fills the screen for a quarter of the memory of a
--- 400 canvas (80 KB instead of 320 KB); this proxy halves
--- every coordinate and size into canvas pixels, and touches
--- are doubled back into the game's 400-wide space
+-- the drawing surface is a 400x400 canvas at zoom 1: the
+-- perf readout showed a zoomed canvas costs about 36 ms
+-- extra per frame in the compositor (frame_ms 81 at zoom 2
+-- against 45 native, same scene), so the game draws in its
+-- own 400-wide space with no scaling proxy; touches arrive
+-- in the same coordinates
 local raw = ui.canvas{
-  w = 200, h = 200, zoom = 2, color = BG,
+  w = 400, h = 400, color = BG,
   on_touch = function(kind, x, y)
-    handle_touch(kind, x * 2, y * 2)
+    handle_touch(kind, x, y)
   end,
 }
-local function wdt(w)
-  if not w then return w end
-  return math.max(1, math.floor(w / 2 + 0.5))
-end
-local function opts(o)
-  if o and (o.width or o.radius) then
-    local n = {}
-    for k, v in pairs(o) do n[k] = v end
-    if o.width then n.width = wdt(o.width) end
-    if o.radius then n.radius = wdt(o.radius) end
-    return n
-  end
-  return o
-end
-local c = {}
-function c:clear(col) raw:clear(col) end
-function c:line(x1, y1, x2, y2, col, w)
-  raw:line(x1 / 2, y1 / 2, x2 / 2, y2 / 2, col, wdt(w)) end
-function c:rect(x, y, w, h, col, o)
-  raw:rect(x / 2, y / 2, w / 2, h / 2, col, opts(o)) end
-function c:circle(x, y, r, col, o)
-  raw:circle(x / 2, y / 2, r / 2, col, opts(o)) end
-function c:text(s, x, y, col, size, align)
-  raw:text(s, x / 2, y / 2, col, wdt(size), align) end
+-- partial frames: only the areas painted since the last clear
+-- (plus the previous frame's) go to the screen; the moving
+-- parts here are small on a plain background, so frames cost
+-- a fraction of a full canvas send
+raw:partial(true)
+local c = raw
 
-local function step_ball()
+local function step_ball(k)
   local prev_x, prev_y = bx, by
-  bx = bx + vx / 2
-  by = by + vy / 2
+  bx = bx + vx * k
+  by = by + vy * k
 
   if bx - BALL_R < LEFT then
     bx = LEFT + BALL_R; vx = math.abs(vx)
@@ -194,6 +183,7 @@ local function step_ball()
        and bx + BALL_R > b.x and bx - BALL_R < b.x + BRICK_W
        and by + BALL_R > b.y and by - BALL_R < b.y + BRICK_H then
       b.alive = false
+      pending_brick = b
       score = score + b.points
       speed = math.min(speed + 0.06, 8.5)
       if prev_y + BALL_R <= b.y or prev_y - BALL_R >= b.y + BRICK_H then
@@ -212,25 +202,29 @@ local function step_ball()
   if by - BALL_R > H - 4 then lose_ball() end
 end
 
-local function draw()
-  c:clear(BG)
-  c:text("SCORE " .. score, 20, 14, PALE, 14, "left")
-  c:text("LV " .. level, 200, 14, LAV, 14, "center")
-  c:text("BALLS " .. lives, 380, 14, PALE, 14, "right")
+-- option tables for the shapes drawn every frame, kept at
+-- file scope so draw() builds no tables it can avoid, and
+-- the HUD strings rebuild only when their value changes
+local BRICK_O = {fill = true, radius = 3}
+local PADDLE_O = {fill = true, radius = 6}
+local BALL_O = {fill = true}
+local FILL_O = {fill = true}
+local last_score, last_level, last_lives = -1, -1, -1
+local hud_score, hud_level, hud_balls = "", "", ""
+
+local function draw_hud()
+  c:text(hud_score, 20, 14, PALE, 14, "left")
+  c:text(hud_level, 200, 14, LAV, 14, "center")
+  c:text(hud_balls, 380, 14, PALE, 14, "right")
+end
+
+local function draw_walls()
   c:line(LEFT, TOP, RIGHT, TOP, WALL, 2)
   c:line(LEFT, TOP, LEFT, 392, WALL, 2)
   c:line(RIGHT, TOP, RIGHT, 392, WALL, 2)
+end
 
-  for _, b in ipairs(bricks) do
-    if b.alive then
-      c:rect(b.x, b.y, BRICK_W, BRICK_H, b.color, {fill = true, radius = 3})
-    end
-  end
-
-  c:rect(paddle_x - PADDLE_W / 2, PADDLE_Y, PADDLE_W, PADDLE_H, PALE,
-         {fill = true, radius = 6})
-  c:circle(bx, by, BALL_R, GOLD, {fill = true})
-
+local function draw_state_text()
   if state == "ready" then
     c:text("TAP TO LAUNCH", 200, 300, LAV, 16, "center")
   elseif state == "over" then
@@ -239,10 +233,84 @@ local function draw()
            "center")
     c:text("TAP TO PLAY AGAIN", 200, 286, LAV, 16, "center")
   end
+  drawn_state = state
 end
 
-ui.every(33, function()
-  paddle_x = paddle_x + (target_x - paddle_x) * 0.55
+-- partial-frame drawing: every frame starts with c:clear(),
+-- which resets the firmware's dirty window; only what this
+-- frame paints (plus last frame's painted areas, re-sent so
+-- movers leave no trail) goes to the screen. So a frame
+-- paints the two movers and nothing else; the bricks, walls
+-- and texts stay on the panel from the frame that painted
+-- them, and a static is repainted only when it changes: a
+-- dead brick is covered once, a changed HUD line redrawn
+-- once, the state text swapped on transitions. A full
+-- repaint happens on the first frame and on new levels.
+local function draw()
+  local hud_changed = false
+  if score ~= last_score then
+    last_score = score
+    hud_score = "SCORE " .. score
+    hud_changed = true
+  end
+  if level ~= last_level then
+    last_level = level
+    hud_level = "LV " .. level
+    hud_changed = true
+  end
+  if lives ~= last_lives then
+    last_lives = lives
+    hud_balls = "BALLS " .. lives
+    hud_changed = true
+  end
+
+  c:clear(BG)
+  if need_full then
+    draw_hud()
+    draw_walls()
+    for _, b in ipairs(bricks) do
+      if b.alive then
+        raw:rect(b.x, b.y, BRICK_W, BRICK_H, b.color, BRICK_O)
+      end
+    end
+    draw_state_text()
+    need_full = false
+    pending_brick = nil
+  else
+    if pending_brick then
+      raw:rect(pending_brick.x, pending_brick.y,
+               BRICK_W, BRICK_H, BG, FILL_O)
+      pending_brick = nil
+    end
+    if hud_changed then
+      raw:rect(0, 8, 400, 26, BG, FILL_O)
+      draw_hud()
+    end
+    if state ~= drawn_state then
+      raw:rect(50, 196, 300, 116, BG, FILL_O)
+      draw_state_text()
+    end
+  end
+  raw:rect(paddle_x - PADDLE_W / 2, PADDLE_Y,
+           PADDLE_W, PADDLE_H, PALE, PADDLE_O)
+  raw:circle(bx, by, BALL_R, GOLD, BALL_O)
+end
+
+-- the frame rate is set by the screen flush, not the timer,
+-- so physics runs on elapsed time: the ball advances as far
+-- per second at 17 fps as it did in the 30 fps design, in
+-- two substeps so it cannot tunnel through a brick
+local last_t = 0
+ui.every(20, function()
+  local now = time.now()
+  local dt = now - last_t
+  last_t = now
+  if dt <= 0 or dt > 0.25 then dt = 0.02 end
+  local f = dt / 0.0333
+  if f < 0.3 then f = 0.3 elseif f > 3 then f = 3 end
+
+  paddle_x = paddle_x + (target_x - paddle_x)
+             * (1 - 0.45 ^ (dt / 0.02))
   local half = PADDLE_W / 2
   if paddle_x < LEFT + half then paddle_x = LEFT + half end
   if paddle_x > RIGHT - half then paddle_x = RIGHT - half end
@@ -250,14 +318,15 @@ ui.every(33, function()
   if state == "ready" then
     bx, by = paddle_x, PADDLE_Y - BALL_R - 1
   elseif state == "play" then
-    step_ball()
-    if state == "play" then step_ball() end
+    step_ball(f / 2)
+    if state == "play" then step_ball(f / 2) end
   end
   draw()
 end)
 
 build_bricks()
 reset_ball()
+last_t = time.now()
 print("paddle ready, best " .. best)
 local gfx_used, gfx_avail = gfx.memory()
 print("paddle gfx memory: used " .. tostring(gfx_used) ..

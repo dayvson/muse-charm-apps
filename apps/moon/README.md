@@ -30,13 +30,17 @@ zoom 1 (242 KB), the size the app was first built at; a zoom 2
 detour through a 176x176 canvas is retired. The canvas runs in
 partial mode, and the sweep never repaints the scene: each frame
 paints only the sliver of each disc row whose lit span changed
-since the previous frame, plus the text block under the disc,
-and the disc rows (position and half-width) are computed once at
-start-up. A full render happens on the first frame, when the
-sweep settles, and on the minute refresh. Measured on the speed
-firmware, the sweep runs at about 22 fps with 14 ms of drawing
-per frame, against 5.6 fps and 91 ms for the zoom 2 build
-repainting in full.
+since the previous frame, plus any text line whose wording
+changed, each under its own small cover, and the disc rows
+(position and half-width) are computed once at start-up. A full
+render happens on the first frame, when the sweep settles, and
+on the minute refresh. Measured mid-sweep, a frame sends about
+28 KB and takes about 4 ms, at about 27 fps; an earlier build
+that repainted the whole text block every frame sent the full
+245 KB canvas per frame at 22 fps, because the block's
+full-width cover dirtied the whole screen, and the zoom 2
+build before that repainted everything at 5.6 fps with 91 ms
+of drawing per frame.
 
 ## Icon
 

@@ -9,7 +9,10 @@
 -- The canvas is a native 352x352 at zoom 1 (no scaling proxy).
 -- It runs in partial mode, and the sweep does not repaint the
 -- scene: each frame paints only the sliver of each disc row
--- whose lit span changed, plus the text block under the disc.
+-- whose lit span changed, plus any text line whose wording
+-- changed, each under its own small cover. (An earlier build
+-- repainted the whole text block every frame; its full-width
+-- cover made every frame send the whole canvas.)
 -- A full render happens on the first frame, at the end of the
 -- sweep, and on the minute refresh.
 
@@ -44,6 +47,7 @@ end
 local anim_t0 = nil
 local anim_to = 0
 local prev_age = nil -- the phase the screen shows mid-sweep
+local shown_name, shown_pct = nil, nil -- text lines on screen
 
 local c -- the canvas, created below
 
@@ -68,8 +72,9 @@ local function draw_texts(age)
   local waxing = age < SYNODIC / 2
   local d = time.date()
   c:text(name, 176, 248, PALE, 28, "center")
-  c:text(illum .. "% lit, day " .. string.format("%.1f", age),
-         176, 282, LAV, 16, "center")
+  shown_name = name
+  shown_pct = illum .. "% lit, day " .. string.format("%.1f", age)
+  c:text(shown_pct, 176, 282, LAV, 16, "center")
   local nxt, what
   if waxing then
     nxt = math.floor(SYNODIC / 2 - age + 0.5); what = "Full moon"
@@ -121,8 +126,10 @@ end
 
 -- one sweep frame: per disc row, paint dark over the parts of
 -- the old lit span the new phase no longer covers, and light
--- over the parts it newly covers; then refresh the text block
--- (plain background under the disc, safe to cover wholesale)
+-- over the parts it newly covers; then refresh the two text
+-- lines that change during a sweep (the phase name and the
+-- percent line), each only when its wording changed and each
+-- under its own small cover, never the whole text block
 local function diff_frame(old_age, new_age)
   for _, row in ipairs(ROWS) do
     local y, rx = CY + row[1], row[2]
@@ -147,8 +154,20 @@ local function diff_frame(old_age, new_age)
       end
     end
   end
-  c:rect(0, 240, 352, 112, BG)
-  draw_texts(new_age)
+  local theta = 2 * math.pi * new_age / SYNODIC
+  local illum = math.floor((1 - math.cos(theta)) / 2 * 100 + 0.5)
+  local name = NAMES[math.floor(new_age / SYNODIC * 8 + 0.5) % 8 + 1]
+  if name ~= shown_name then
+    shown_name = name
+    c:rect(36, 244, 280, 34, BG)
+    c:text(name, 176, 248, PALE, 28, "center")
+  end
+  local pct = illum .. "% lit, day " .. string.format("%.1f", new_age)
+  if pct ~= shown_pct then
+    shown_pct = pct
+    c:rect(56, 278, 240, 22, BG)
+    c:text(pct, 176, 282, LAV, 16, "center")
+  end
 end
 
 local function play()

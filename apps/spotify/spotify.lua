@@ -43,6 +43,8 @@ local disc_i = 1
 local disc_art = nil
 local disc_art_i = nil
 local disc_asked = false
+local last_ask_t = 0    -- when the current ask was sent
+local sync_age = 0      -- seconds since the last state sync
 
 -- gadget text is ASCII only: drop high bytes (accents go,
 -- the letters around them stay)
@@ -119,7 +121,21 @@ local function apply_state(d)
   if d.artist then st.artist = d.artist end
   st.note = d.note
   if d.playing ~= nil then st.playing = d.playing end
-  if d.prog then st.prog = d.prog end
+  if d.prog then
+    st.prog = d.prog
+    -- the state was sampled when the ask was sent and the
+    -- answer takes seconds to arrive: add the round trip
+    -- (less a sampling allowance) so the bar starts where
+    -- the song actually is, not where it was
+    if d.playing and last_ask_t > 0 then
+      local el = time.now() - last_ask_t
+      if el > 2 and el < 120 then
+        st.prog = st.prog + math.floor(el - 2)
+        if d.dur and st.prog > d.dur then st.prog = d.dur end
+      end
+    end
+  end
+  sync_age = 0
   if d.dur then st.dur = d.dur end
   if d.tid and d.tid ~= st.tid then
     st.tid = d.tid
@@ -149,6 +165,7 @@ local function route_reply(ans)
   end
 end
 local function ask(cmd)
+  last_ask_t = time.now()
   muse.ask(cmd, function(ans, err)
     if ans then route_reply(ans) end
   end)
@@ -307,8 +324,15 @@ end
 ui.every(1000, function()
   if screen ~= 1 or not st.playing then return end
   st.prog = st.prog + 1
+  sync_age = sync_age + 1
   c:rect(35, 344, 396, 20, BG)
   draw_progress()
+  if sync_age >= 60 then
+    -- re-sync once a minute: the local count drifts and
+    -- the round trip estimate is only an estimate
+    sync_age = 0
+    ask("SPOTIFY STATE")
+  end
   if st.dur > 0 and st.prog > st.dur + 2
      and not asked_track_end then
     asked_track_end = true

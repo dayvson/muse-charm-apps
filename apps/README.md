@@ -18,6 +18,7 @@ and other edge displays.
 | [Converter](fx/) | `fx` | USD, BRL, EUR, GBP and RUB with each side switchable, a keypad for the amount, and live rates from free keyless sources, cached for offline use. |
 | [F1](f1/) | `f1` | Formula 1: the next race with a lapping car on a drawn circuit outline and a countdown ring at the edge of the screen, the weekend schedule, the last race's podium and the championship top 3, from a free keyless API. |
 | [Weather](weather/) | `weather` | A living sky for one city at a time (Miami, New York, Rio de Janeiro, San Francisco; tap the city name to switch): a gradient sky with an animated sun, moon, stars, clouds, rain or snow, a big temperature and a glass panel with the next three hours, from Open-Meteo. |
+| [Lab](lab/) | `lab` | A test bench for the new firmware APIs: a roller page picker, device.info with a live mic bar, motion.read values, a muse.ask button and a 1-minute alarm test. |
 
 ## How an app runs
 
@@ -43,7 +44,8 @@ Reinstalling with the same id updates the app.
 
 ## Adding an app
 
-Ask Muse to build it ("build me a ... app for my gadget"). When you're happy with
-it, save it here as `apps/<id>/<id>.lua` with a README in the same style: what it
-does, sound, icon, and how it's installed. Muse can read an installed app's
-source back with `luapp.admin` action `source`.
+Ask Muse to build it ("build me a ... app for my gadget"). Muse installs it on the
+board, then commits it here as `apps/<id>/<id>.lua` with a README in the same style
+and adds it to the tables. It follows [`muse-prompts/publish-apps.md`](../muse-prompts/publish-apps.md),
+which you send it once. Updates work the same way. Screenshots are taken on the
+board from a Mac with `scripts/07_screenshots.sh`.

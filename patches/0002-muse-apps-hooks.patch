@@ -1,5 +1,5 @@
 diff --git a/esp32/components/muse/CMakeLists.txt b/esp32/components/muse/CMakeLists.txt
-index 5327b7f..6547d9a 100644
+index 5327b7f..5860bb9 100644
 --- a/esp32/components/muse/CMakeLists.txt
 +++ b/esp32/components/muse/CMakeLists.txt
 @@ -45,6 +45,20 @@ if(CONFIG_MUSE_ENABLED)
@@ -15,7 +15,7 @@ index 5327b7f..6547d9a 100644
 +                             "apps/wind_data.c" "apps/wind_ui.c" "apps/wind_assets.c"
 +                             "apps/luapp_vm.c" "apps/luapp_ui.c" "apps/luapp_store.c" "apps/luapp_sandbox.c"
 +                             "apps/luapp_json.c" "apps/luapp_api.c" "apps/luapp_image.c" "apps/luapp_synth.c"
-+                             "apps/luapp_gfx.c" "apps/luapp_sound.c")
++                             "apps/luapp_gfx.c" "apps/luapp_sound.c" "apps/luapp_dev.c" "apps/luapp_shot.c" "apps/luapp_perf.c")
 +            # Lua 5.4.7, unmodified (apps/lua/; MIT, see lua.h).
 +            file(GLOB lua_srcs "${COMPONENT_DIR}/apps/lua/*.c")
 +            list(APPEND srcs ${lua_srcs})
@@ -88,21 +88,72 @@ index 2b29407..d9b64a6 100644
          if (f.response.status >= 400) {
              return on_http_error(s, f.response);
          }
+diff --git a/esp32/components/muse/muse_chat_text.c b/esp32/components/muse/muse_chat_text.c
+index dcfe8bb..ad88619 100644
+--- a/esp32/components/muse/muse_chat_text.c
++++ b/esp32/components/muse/muse_chat_text.c
+@@ -26,6 +26,10 @@
+ 
+ #include "muse_state.h"
+ #include "muse_text.h"
++#include "sdkconfig.h"
++#if CONFIG_MUSE_APPS
++#include "muse_apps.h"
++#endif
+ 
+ #define CAPTION_CHARS 32   /* what fits across the round screen */
+ #define CONSOLE_LINE 400   /* one "@chat" line */
+@@ -329,6 +333,9 @@ static size_t escape_some(const char **src, char *out, size_t cap)
+ /* Each line goes out in one write, so other tasks' log lines land between lines, not inside them. */
+ void muse_hatch_console(const char *type, const char *text, const char *fields, ...)
+ {
++#if CONFIG_MUSE_APPS
++    muse_apps_chat_line(type, text);   /* muse-charm: a Lua app's muse.ask reads the reply */
++#endif
+     static unsigned seq;
+     char line[CONSOLE_LINE];
+     do {
+diff --git a/esp32/components/muse/muse_input.c b/esp32/components/muse/muse_input.c
+index 50147a5..228004f 100644
+--- a/esp32/components/muse/muse_input.c
++++ b/esp32/components/muse/muse_input.c
+@@ -59,6 +59,9 @@
+ #if CONFIG_MUSE_WATCHER_CAMERA
+ #include "boards/watcher_camera.h"
+ #endif
++#if CONFIG_MUSE_APPS
++#include "muse_apps.h"
++#endif
+ 
+ static atomic_uint s_touch_talk_events;
+ 
+@@ -274,6 +277,10 @@ static void aux_button(bool pressed, bool edge)
+             } else {
+                 muse_state_set_caption("%s", saved_caption);
+             }
++#if CONFIG_MUSE_APPS
++        } else if (muse_apps_aux_press()) {
++            /* muse-charm: a Lua app on screen took the press (ui.on_button) */
++#endif
+         } else {
+             sleep_in = DOUBLE_TICKS;
+         }
 diff --git a/esp32/components/muse/muse_ui.c b/esp32/components/muse/muse_ui.c
-index c483049..d5f081c 100644
+index c483049..782a8c6 100644
 --- a/esp32/components/muse/muse_ui.c
 +++ b/esp32/components/muse/muse_ui.c
-@@ -47,6 +47,9 @@
+@@ -47,6 +47,10 @@
  #include "muse_text.h"
  #include "muse_wifi.h"
  #include "muse_voice.h"
 +#if CONFIG_MUSE_APPS
++#include "muse_apps.h"
 +#include "muse_apps_ui.h"
 +#endif
  #if CONFIG_MUSE_VIDEO
  #include "muse_video.h"
  #endif
-@@ -139,7 +142,19 @@ bool muse_ui_face_active(void)
+@@ -139,7 +143,19 @@ bool muse_ui_face_active(void)
      return s_face_active;
  }
  static lv_obj_t *s_settings;
@@ -123,7 +174,7 @@ index c483049..d5f081c 100644
  static lv_obj_t *s_wifi_icon;
  static lv_obj_t *s_ble_icon;
  static lv_obj_t *s_cover;
-@@ -1181,12 +1196,18 @@ static void build_screen(void)
+@@ -1181,12 +1197,18 @@ static void build_screen(void)
  
      lv_obj_t *face = scr;
      if (muse_board->touch) {
@@ -144,7 +195,7 @@ index c483049..d5f081c 100644
          /* It never scrolls, but LVGL would size its scrollbars from all its
           * children every time it draws any part of it. */
          lv_obj_set_scrollbar_mode(s_face, LV_SCROLLBAR_MODE_OFF);
-@@ -1194,9 +1215,14 @@ static void build_screen(void)
+@@ -1194,9 +1216,14 @@ static void build_screen(void)
           * shows as a different-coloured square around the character. */
          lv_obj_set_style_bg_color(s_face, lv_color_black(), 0);
          lv_obj_set_style_bg_opa(s_face, LV_OPA_COVER, 0);
@@ -160,7 +211,7 @@ index c483049..d5f081c 100644
      }
  
      if (!s_small && muse_board->no_ring) {
-@@ -1508,7 +1534,7 @@ static void update_control_hints(muse_mode_t mode)
+@@ -1508,7 +1535,7 @@ static void update_control_hints(muse_mode_t mode)
  {
      if (!s_ptt_hint) return;
      /* Don't obscure settings rows/keyboards with floating physical icons. */
@@ -169,7 +220,7 @@ index c483049..d5f081c 100644
      lv_obj_set_flag(s_ptt_hint, LV_OBJ_FLAG_HIDDEN, settings);
      lv_obj_set_flag(s_spk_hint, LV_OBJ_FLAG_HIDDEN, settings);
      lv_obj_set_flag(s_pwr_hint, LV_OBJ_FLAG_HIDDEN, settings);
-@@ -1530,7 +1556,7 @@ static void build_overlays(void)
+@@ -1530,7 +1557,7 @@ static void build_overlays(void)
      lv_obj_t *scr = lv_screen_active();
  
      /* Page dots. */
@@ -178,7 +229,7 @@ index c483049..d5f081c 100644
          lv_obj_t *d = lv_obj_create(scr);
          lv_obj_remove_style_all(d);
          lv_obj_set_size(d, 8, 8);
-@@ -1538,7 +1564,7 @@ static void build_overlays(void)
+@@ -1538,7 +1565,7 @@ static void build_overlays(void)
          lv_obj_set_style_bg_opa(d, LV_OPA_COVER, 0);
          lv_obj_set_style_bg_color(d, lv_color_hex(COLOR_DOT_OFF), 0);
          lv_obj_remove_flag(d, LV_OBJ_FLAG_CLICKABLE);
@@ -187,7 +238,17 @@ index c483049..d5f081c 100644
          s_dots[i] = d;
      }
  
-@@ -1709,19 +1735,24 @@ static void update_chrome(float now)
+@@ -1677,6 +1704,9 @@ static bool update_sleep(void)
+                 target = s_preview_brightness;
+             }
+         }
++#if CONFIG_MUSE_APPS
++        target = muse_apps_brightness(target);   /* muse-charm: a Lua app's app.brightness */
++#endif
+         apply_brightness(target);
+     }
+     return s_dark;
+@@ -1709,19 +1739,24 @@ static void update_chrome(float now)
      s_next_settings_tick = now + SETTINGS_TICK_S;
  
      if (s_tv) {
@@ -218,7 +279,7 @@ index c483049..d5f081c 100644
      }
  
      /* Joining, the icon blinks: the compact layout has no state label. */
-@@ -2203,9 +2234,9 @@ static void frame_tick(lv_timer_t *timer)
+@@ -2203,9 +2238,9 @@ static void frame_tick(lv_timer_t *timer)
      if (s_image_dsc.data) {
          return;   /* the image covers the face */
      }
@@ -274,8 +335,97 @@ index 26307ed..21df6c6 100644
              if (xQueueReceive(s_queue, &ev, 0) != pdTRUE) {
                  continue;
              }
+diff --git a/esp32/main/app.c b/esp32/main/app.c
+index 1786289..22606f6 100644
+--- a/esp32/main/app.c
++++ b/esp32/main/app.c
+@@ -93,6 +93,9 @@
+ #endif
+ #if CONFIG_MUSE_ENABLED
+ #include "muse_glue.h"
++#if CONFIG_MUSE_APPS
++#include "muse_apps.h"   // muse-charm: the watch's commands
++#endif
+ #include "muse_input.h"
+ // Muse joins Wi-Fi from its own settings, before or without pairing.
+ #define WIFI_WITHOUT_PAIRING 1
+@@ -1941,6 +1944,13 @@ static cJSON *bug_report_command(
+ 
+ #endif  // CONFIG_HOMEHUB_BLE_COMMANDS
+ 
++#if CONFIG_MUSE_APPS
++// muse-charm: asynchronous results from the apps (luapp.install and friends).
++static void apps_reply(uint64_t generation, const char *request_id, cJSON *result) {
++    noise_ctrl_send_command_result(generation, request_id, result);
++}
++#endif
++
+ static cJSON *on_ws_command(
+     const char *command, cJSON *params, const char *request_id,
+     noise_ctrl_session_generation_t session_generation) {
+@@ -1948,6 +1958,11 @@ static cJSON *on_ws_command(
+     if (ble_commands_handles(command)) {
+         return ble_commands_handle(command, params, request_id, session_generation);
+     }
++#endif
++#if CONFIG_MUSE_APPS
++    if (muse_apps_handles(command)) {
++        return muse_apps_command(command, params, request_id, session_generation);
++    }
+ #endif
+     if (strcmp(command, "device.list_vms") == 0) {
+         return list_vms_command();
+@@ -2722,6 +2737,9 @@ void app_run(void) {
+ 
+     noise_ctrl_init(identity_node_id(), identity_ble_name(), on_ws_control_status);
+     noise_ctrl_set_command_cb(on_ws_command);
++#if CONFIG_MUSE_APPS
++    muse_apps_set_reply(apps_reply);   // muse-charm: Lua app installs answer later
++#endif
+     noise_ctrl_set_agent_name_cb(led_status_set_title);
+     heap_snapshot("after noise_ctrl_init");
+ #if CONFIG_HOMEHUB_BLE_COMMANDS
+diff --git a/esp32/main/muse_glue.c b/esp32/main/muse_glue.c
+index 82d14df..8846fb3 100644
+--- a/esp32/main/muse_glue.c
++++ b/esp32/main/muse_glue.c
+@@ -48,6 +48,9 @@
+ #if CONFIG_MUSE_REALTIME_VOICE
+ #include "muse_voice_call.h"
+ #endif
++#if CONFIG_MUSE_APPS
++#include "muse_apps.h"   // muse-charm: the apps' serial console command
++#endif
+ 
+ static const char *TAG = "link.muse";
+ 
+@@ -649,13 +652,24 @@ static void boot_task(void *arg) {
+     vTaskDelete(NULL);
+ }
+ 
++#if CONFIG_MUSE_APPS
++// muse-charm: the console has one hook; the SDK token command keeps it first.
++static bool console_hook(const char *line) {
++    return sdk_token_console_command(line) || muse_apps_console(line);
++}
++#endif
++
+ void muse_glue_start(void) {
+     // First, before Link's Wi-Fi, BLE and tunnel and Muse's display take and
+     // fragment internal RAM: the CPU's light-sleep retention memory.
+     muse_input_power_init();
+     s_ready = xEventGroupCreate();
+     muse_link_register(&s_ops);
++#if CONFIG_MUSE_APPS
++    muse_input_set_console_hook(console_hook);
++#else
+     muse_input_set_console_hook(sdk_token_console_command);
++#endif
+     muse_ble_set_name(identity_ble_name());
+     ble_companion_t companion = {
+         .svcs = muse_ble_services(),
 diff --git a/esp32/main/noise_control.cpp b/esp32/main/noise_control.cpp
-index b5a699a..c06734f 100644
+index b5a699a..ac2621b 100644
 --- a/esp32/main/noise_control.cpp
 +++ b/esp32/main/noise_control.cpp
 @@ -1379,6 +1379,10 @@ static void identity_on_frame(identity_fetch &f, const DecodedServiceFrame &fram
@@ -300,52 +450,49 @@ index b5a699a..c06734f 100644
      if (ota_is_enabled()) {
          cJSON *ota_required = cJSON_CreateObject();
          cJSON_AddItemToObject(ota_required, "url",
-diff --git a/esp32/main/app.c b/esp32/main/app.c
---- a/esp32/main/app.c
-+++ b/esp32/main/app.c
-@@ -93,6 +93,9 @@
- #endif
- #if CONFIG_MUSE_ENABLED
- #include "muse_glue.h"
-+#if CONFIG_MUSE_APPS
-+#include "muse_apps.h"   // muse-charm: the watch's commands
-+#endif
- #include "muse_input.h"
- // Muse joins Wi-Fi from its own settings, before or without pairing.
- #define WIFI_WITHOUT_PAIRING 1
-@@ -1940,6 +1943,13 @@
- // ---- BLE commands' hooks (main/ble_commands.c) ----
+@@ -2385,6 +2393,7 @@ static session_result_t run_session(stack_monitor_t *stack) {
+     noise_tunnel_emit_t tun_emit = {&tun_ctx, tunnel_open_stream, tunnel_send_body,
+                                     tunnel_send_body_inplace, tunnel_reset_stream};
+     bool tunnel_opened = false;
++    bool register_held_logged = false;   // muse-charm
+     uint64_t last_busy_us = esp_timer_get_time();
  
- #endif  // CONFIG_HOMEHUB_BLE_COMMANDS
-+
-+#if CONFIG_MUSE_APPS
-+// muse-charm: asynchronous results from the apps (luapp.install and friends).
-+static void apps_reply(uint64_t generation, const char *request_id, cJSON *result) {
-+    noise_ctrl_send_command_result(generation, request_id, result);
-+}
+     while (!error && s_running) {
+@@ -2578,6 +2587,14 @@ static session_result_t run_session(stack_monitor_t *stack) {
+                  || control_tx.prefix_sent != old_prefix_sent)) {
+                 did = true;
+                 last_activity_us = esp_timer_get_time();
++            } else if (control_tx.is_registration && !register_held_logged
++                       && esp_timer_get_time() - session_up_us > 10 * 1000 * 1000) {
++                // muse-charm: say why commands can't arrive yet.
++                register_held_logged = true;
++                ESP_LOGW(TAG, "link.register held for DMA headroom: %u free (%u largest), needs %u",
++                         (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
++                         (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA),
++                         (unsigned)NOISE_TX_DMA_RESERVE_BYTES);
+             }
+             if (status == json_send_status::Complete) {
+                 if (control_tx.is_heartbeat) {
+diff --git a/esp32/main/noise_tunnel_internal.h b/esp32/main/noise_tunnel_internal.h
+index fbcce43..8f15c10 100644
+--- a/esp32/main/noise_tunnel_internal.h
++++ b/esp32/main/noise_tunnel_internal.h
+@@ -87,7 +87,18 @@ typedef struct {
+ // at the result-queue boundary, before every control chunk, tunnel batch and
+ // ping. Download admission also leaves this margin after its allocations.
+ // It is not a contiguous-allocation requirement or a reservation.
++// muse-charm: with the home-network tunnel off there are no 8 KiB tunnel
++// batches, and with live voice and the apps on, the Waveshare 1.75C idles at
++// 13-17 KiB of free DMA RAM: under 16 KiB, link.register waited forever and no
++// command reached the board. 12 KiB keeps the margin for control messages.
++#ifdef ESP_PLATFORM
++#include "sdkconfig.h"
++#endif
++#if defined(CONFIG_MUSE_APPS) && !defined(CONFIG_HOMEHUB_TUNNEL)
++#define NOISE_TX_DMA_RESERVE_BYTES (12 * 1024)
++#else
+ #define NOISE_TX_DMA_RESERVE_BYTES (16 * 1024)
 +#endif
  
- static cJSON *on_ws_command(
-     const char *command, cJSON *params, const char *request_id,
-@@ -1947,6 +1957,11 @@
- #if CONFIG_HOMEHUB_BLE_COMMANDS
-     if (ble_commands_handles(command)) {
-         return ble_commands_handle(command, params, request_id, session_generation);
-+    }
-+#endif
-+#if CONFIG_MUSE_APPS
-+    if (muse_apps_handles(command)) {
-+        return muse_apps_command(command, params, request_id, session_generation);
-     }
- #endif
-     if (strcmp(command, "device.list_vms") == 0) {
-@@ -2722,6 +2737,9 @@
- 
-     noise_ctrl_init(identity_node_id(), identity_ble_name(), on_ws_control_status);
-     noise_ctrl_set_command_cb(on_ws_command);
-+#if CONFIG_MUSE_APPS
-+    muse_apps_set_reply(apps_reply);   // muse-charm: Lua app installs answer later
-+#endif
-     noise_ctrl_set_agent_name_cb(led_status_set_title);
-     heap_snapshot("after noise_ctrl_init");
- #if CONFIG_HOMEHUB_BLE_COMMANDS
+ // Total-free burst margin for tunnel batches, result dequeue, every control
+ // chunk and tunnel pings. Optionally return the same sample for diagnostics.

@@ -47,6 +47,11 @@ time. What we did:
 - **Chart buffers exist only near the screen:** Stocks and Wind allocate them only
   while their tile is on screen or one swipe away (`muse_apps_near`). A Lua app
   starting frees them at once (`muse_apps_trim`).
+- **Screenshots draw in strips:** a whole-screen snapshot needs a 434 KB buffer,
+  which a running app with a big canvas leaves no room for. `luapp.admin`
+  `screenshot` ([`luapp_shot.c`](../firmware/luapp_shot.c)) draws 32 rows at a time
+  into a ~30 KB strip and feeds each one to the ROM's deflate as PNG rows: about
+  200 KB at the peak.
 - **A 512 KB PSRAM reserve for voice** (`MUSE_APPS_PSRAM_RESERVE`): Lua images,
   canvases and the native apps never take the last 512 KB.
 - **LVGL allocates from PSRAM** (`muse_lv_mem.c` in the SDK).
@@ -59,7 +64,33 @@ The firmware is now about 3.4 MB, in a 4 MB app slot.
 the SDK's own commands take about 2.8 KB of it. So the apps' command descriptions
 are terse ([`muse_apps.c`](../firmware/muse_apps.c)). The detail goes elsewhere:
 the device guide (up to 4096 bytes) for what the apps are for, and `luapp.admin`
-`api` (about 4 KB per reply, so split into three actions) for the Lua API.
+`api` (about 4 KB per reply, so split into five actions: `api`, `api_ui`,
+`api_gfx`, `api_sound`, `api_device`) for the Lua API.
+
+## The link needs DMA-capable RAM
+
+The SDK holds back `link.register` until a margin of DMA-capable internal RAM is
+free (`NOISE_TX_DMA_RESERVE_BYTES`, 16 KB). With live voice on, this board idles
+at 13-17 KB, so the list of commands was sometimes never sent and no Muse command
+reached the board. Patch 0002 lowers the margin to 12 KB when the apps are on and
+the home-network tunnel is off, and `noise_control.cpp` logs `link.register held
+for DMA headroom` if it still waits over 10 s. `scripts/08_link_check.sh` checks
+this end to end: it runs a command over the serial console, then watches while you
+ask Muse for one.
+
+## Sending less to the screen
+
+A full-screen frame takes about 33 ms to send over the display bus, which capped
+canvas games well below 60 fps. Two changes:
+
+- **Timers go down to 16 ms** (they were silently rounded up to 50 ms, so every
+  game ran at 20 fps).
+- **`c:partial(true)`** sends only the areas drawn since the last `c:clear()`, plus
+  the previous frame's. At first it had no effect: LVGL's own canvas calls
+  (`fill_bg`, `finish_layer`) marked the whole canvas dirty every frame. The canvas
+  code now turns LVGL's invalidation off around those calls
+  ([`luapp_gfx.c`](../firmware/luapp_gfx.c)). `perf` reports the KB actually sent per
+  frame, so it's easy to check.
 
 ## Keeping Muse responsive
 

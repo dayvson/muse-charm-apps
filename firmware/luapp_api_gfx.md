@@ -1,17 +1,15 @@
 # Graphics: images, sprites and canvases
 
-Images and canvases get up to 1.5 MB per app, as much as the board can spare.
-`used, available, largest = gfx.memory()`: largest is the biggest single image
-or canvas that fits right now (each needs one unbroken block), so check it
-before a big one. Each costs w*h*2 bytes (w*h*3 with transparency): a
-full-screen canvas is 424 KB, 106 KB with zoom=2.
-Sprites cost their unscaled size. Images are 466x466 at most.
+Images and canvases get up to 1.5 MB per app, as the board can spare.
+`used, available, largest = gfx.memory()`: largest is the biggest single
+image or canvas that fits now; check it before a big one. Each costs w*h*2
+bytes (w*h*3 with transparency): a full-screen canvas is 424 KB, 106 KB with
+zoom=2. Sprites cost their unscaled size. Images are 466x466 at most.
 
 ## Images
 
-    img = gfx.image(data)   -- PNG or baseline JPEG: the bytes (an http.get body)
-                            -- or base64 text (a data: URL works too). Large
-                            -- JPEGs are scaled down to fit.
+    img = gfx.image(data)   -- PNG or baseline JPEG: bytes (an http.get body) or
+                            -- base64 (or a data: URL); big JPEGs scale down
     img = gfx.sprite{rows={"..##..", ".#..#."}, palette={["#"]=0xFF4040}, scale=4}
                             -- pixel art: one character per pixel; characters
                             -- not in the palette are transparent; scale
@@ -31,12 +29,11 @@ as base64 in the code; fetch larger ones with http.get (32 KB at most).
 
     app.icon(img)           -- an image, sprite or canvas; app.icon(nil) clears
 
-Call it at start-up; the board keeps it (unchanged icons aren't rewritten).
-It becomes a 96 px circle: opaque images fill it, cropped to the circle;
-ones with transparency sit inside at 72 px on the app's `color`, pixel art
-enlarged by whole steps (a 12, 18, 24 or 36 px sprite fills it best). For a
-crisp, premium look draw a 96x96 canvas: a bold shape or two in 2-3 colours,
-no small text; then c:delete(). Make each app's icon distinct.
+Call it at start-up; the board keeps it. It becomes a 96 px circle: opaque
+images fill it, cropped; transparent ones sit inside at 72 px on the app's
+`color` (a 12, 18, 24 or 36 px sprite fills it best). For a crisp look draw
+a 96x96 canvas: a bold shape or two in 2-3 colours, no small text; then
+c:delete(). Make each app's icon distinct.
 
 ## Canvas
 
@@ -50,9 +47,8 @@ are pixels from its top-left corner (fractions round).
       --   quarter (or less) of the memory; w=233, h=233, zoom=2 fills the
       --   screen. Draw and touch in canvas pixels.
       -- on_tap(x, y): a tap, in canvas coordinates
-      -- on_touch(kind, x, y): kind "down", "move" (while dragging) or "up".
-      --   A canvas with on_touch keeps its drags: swiping on it doesn't
-      --   change screens, and holding still for 1.5 s leaves the app.
+      -- on_touch(kind, x, y): "down", "move" or "up". It keeps its drags
+      --   (no screen swipes); holding still 1.5 s still leaves the app.
 
     c:clear([color])                       -- fill (default: the canvas colour)
     c:rect(x, y, w, h, color [, {fill=true, width=2, radius=0, opacity=255}])
@@ -66,26 +62,53 @@ are pixels from its top-left corner (fractions round).
       -- top-left at x, y; scale grows right and down; angle turns it about
       -- its centre
     c:pixel(x, y, color)
+    c:polygon({x1, y1, x2, y2, ...}, color [, opacity])  -- filled, 3-32 corners
+    c:gradient(x, y, w, h, color1, color2 [, "v" | "h"]) -- or {dir, radius, opacity}
+    c:tilemap(sheet, tw, th, map, cols [, x=0, y=0])
+      -- sheet: tw x th tiles numbered from 1, left to right then down (a
+      -- sprite sheet's scale applies); map: tile numbers, cols per row, 0
+      -- empty, 4096 at most. Draws the whole map in one call.
+    c:sprites(img, {x1, y1, x2, y2, ...})  -- img at up to 256 top-lefts
     w, h = c:size()
 
-Draw calls queue (up to 1500 per callback) and draw after it. For a game,
-redraw each frame from ui.every(33, ...) (about 30 fps): c:clear(), then
-draw. Keep a canvas as small as the game needs: smaller draws faster.
+Draw calls queue (up to 1500 per callback) and draw after it; tilemap,
+sprites and polygon count as one each. Pixels stay between callbacks. A
+callback that draws re-sends the whole canvas to the screen (full screen:
+~33 ms, so 30 fps at most); one that doesn't costs nothing.
+
+    c:partial(true)   -- send only what changed: for games
+
+After it, a frame sends the screen only where its calls painted. c:clear()
+wipes the whole canvas, so the frame after a clear also re-sends where the
+previous frame painted. Two ways that work:
+- Small scenes: c:clear() then draw everything, every frame.
+- A scene that mostly stays: draw it once; then each frame paint over the
+  moving things' old spots (background colour, or redraw what was under
+  them) and draw them at the new spots. No clear: only those spots are sent.
+Never clear and then draw only part of the scene: the rest is gone from the
+canvas. A full-canvas gradient or tilemap every frame gains nothing. Run
+games from ui.every(16, ...) to ui.every(33, ...).
+
+    gfx.stats()   -- the last second: {fps, frame_ms, kb (per frame), app_fps,
+                  --  draw_ms, lua_ms, calls, busy (%), lua_kb}
+    gfx.show_stats(true)   -- the same, on screen, while you tune
+
+Keep moving parts small and static ones in widgets; smaller canvases draw
+faster.
 
 ## Example: a paddle game
 
     local c = ui.canvas{w=360, h=360, color=0x101018,
       on_touch=function(kind, x, y) px = x end}
+    c:partial(true)
     local pad = gfx.sprite{rows={"..####..", ".######.", "########"},
       palette={["#"]=0x5AC8FA}, scale=6}
     px, bx, by, vx, vy = 180, 180, 60, 3, 4
-    ui.every(33, function()
+    ui.every(20, function()
       bx, by = bx + vx, by + vy
       if bx < 8 or bx > 352 then vx = -vx; sound.effect("click") end
       if by < 8 then vy = -vy end
-      if by > 296 and by < 310 and math.abs(bx - px) < 48 then
-        vy = -math.abs(vy); sound.effect("coin")
-      end
+      if by > 296 and by < 310 and math.abs(bx - px) < 48 then vy = -vy end
       if by > 360 then bx, by, vy = 180, 60, 4; sound.effect("lose") end
       c:clear()
       c:circle(bx, by, 8, 0xFFD60A)

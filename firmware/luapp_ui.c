@@ -8,6 +8,7 @@
  */
 
 #include <ctype.h>
+#include "esp_attr.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -34,7 +35,7 @@
 #define NAME_W 124
 
 static lv_obj_t *s_tile, *s_launcher, *s_scroll, *s_root, *s_empty, *s_dots[PAGES];
-static char s_ids[GRID][LUAPP_ID_MAX + 1];
+EXT_RAM_BSS_ATTR static char s_ids[GRID][LUAPP_ID_MAX + 1];
 static uint32_t s_shown_version = UINT32_MAX;
 static int s_pages, s_page;
 
@@ -45,7 +46,7 @@ typedef struct {
     uint8_t *file;   /* LUAPP_ICON_FILE bytes */
     lv_image_dsc_t dsc;
 } icon_t;
-static icon_t s_icons[GRID];
+EXT_RAM_BSS_ATTR static icon_t s_icons[GRID];
 static bool s_icons_changed;
 
 static lv_obj_t *label(lv_obj_t *parent, const lv_font_t *font, uint32_t color, const char *text)
@@ -116,6 +117,16 @@ static void on_root_long(lv_event_t *e)
 {
     (void)e;
     luapp_vm_tap(-2, luapp_vm_gen(), 0, 0);
+}
+
+/* Up and down swipes in an app are the app's (ui.on_swipe); sideways ones
+ * change screens. */
+static void on_root_gesture(lv_event_t *e)
+{
+    (void)e;
+    lv_dir_t d = lv_indev_get_gesture_dir(lv_indev_active());
+    if (d == LV_DIR_TOP) luapp_vm_tap(-3, luapp_vm_gen(), 0, 0);
+    else if (d == LV_DIR_BOTTOM) luapp_vm_tap(-4, luapp_vm_gen(), 0, 0);
 }
 
 static void show_dots(void)
@@ -326,6 +337,7 @@ void luapp_ui_build(lv_obj_t *tile, int w, int h)
     lv_obj_add_flag(s_root, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_event_cb(s_root, on_root_tap, LV_EVENT_SHORT_CLICKED, NULL);
     lv_obj_add_event_cb(s_root, on_root_long, LV_EVENT_LONG_PRESSED, NULL);
+    lv_obj_add_event_cb(s_root, on_root_gesture, LV_EVENT_GESTURE, NULL);
 
     lv_timer_create(tick, 500, NULL);
     luapp_vm_start();

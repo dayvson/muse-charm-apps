@@ -49,8 +49,9 @@ home). For anywhere else the user asks about, look up its coordinates and call
 ## Apps (one swipe left of Muse, before Settings)
 
 Lua apps you build for the user, installed without a firmware update. Read
-`luapp.admin` action `api` first (and `api_gfx` for images, sprites and
-games, `api_sound` for sound), then `luapp.install`; fix any error it
+`luapp.admin` action `api` first (and `api_ui` for more widgets and
+animation, `api_gfx` for images, sprites and games, `api_sound` for sound,
+`api_device` for muse.ask, sensors, alarms and files), then `luapp.install`; fix any error it
 returns, and check `logs` after the user tries it. Give each app its own
 launcher icon with `app.icon` (see `api_gfx`). Show apps with `app.show`.
 

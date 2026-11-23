@@ -13,11 +13,13 @@
  * arguments are read into a props_t first, then applied under the lock.
  */
 
+#include <ctype.h>
 #include <math.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/time.h>
 
 #include "esp_attr.h"
@@ -64,7 +66,10 @@ static const char *TAG = "luapp";
 #define KV_FLUSH_US (10 * 1000000LL)
 #define CLOCK_VALID 1704067200
 
-typedef enum { M_INSTALL, M_RUN, M_STOP, M_REMOVE, M_SOURCE, M_TAP, M_HTTP, M_TOUCH } mtype_t;
+typedef enum {
+    M_INSTALL, M_RUN, M_STOP, M_REMOVE, M_SOURCE, M_TAP, M_HTTP, M_TOUCH, M_CHANGE, M_ANIM,
+    M_SEND, M_SHOT, M_WIDGETS,
+} mtype_t;
 
 typedef struct {
     uint8_t type;
@@ -86,13 +91,19 @@ typedef struct {
     uint64_t sgen;
 } msg_t;
 
-typedef enum { W_LABEL, W_BOX, W_BUTTON, W_ARC, W_BAR, W_LINE, W_IMAGE, W_CANVAS } wkind_t;
+typedef enum {
+    W_LABEL, W_BOX, W_BUTTON, W_ARC, W_BAR, W_LINE, W_IMAGE, W_CANVAS,
+    W_ROLLER, W_SLIDER, W_SWITCH, W_LIST, W_SCROLL,
+} wkind_t;
 
 typedef struct {
     lv_obj_t *obj, *lbl;
     lv_point_precise_t *pts;
     luapp_img_t *img;   /* W_IMAGE: the image shown (a reference) */
     int tap_ref, touch_ref;
+    int change_ref;     /* roller, slider, switch: on_change; list: on_select */
+    int anim_ref;       /* ui.animate's on_done */
+    int8_t parent;      /* the scroll it's in, or -1 (the screen) */
     int16_t x, y;
     int16_t scale;      /* W_IMAGE: the app's scale in percent (0: 100) */
     int8_t canvas;      /* W_CANVAS: its slot in luapp_gfx.c */
@@ -109,6 +120,9 @@ typedef struct {
     uint32_t id;
     int ref;
     char url[URL_MAX + 1];
+    char method[8];
+    char *headers, *body;   /* PSRAM or NULL, owned here until the request goes */
+    size_t body_len;
 } vhttp_t;
 
 typedef struct {
@@ -133,6 +147,7 @@ typedef struct {
     uint32_t http_seq;
     int icon_calls;
     int64_t away_since;         /* off the Apps screen since (0: on it) */
+    int swipe_ref;              /* ui.on_swipe */
     int64_t timers_ok_at;       /* frame pacing: no timers before this */
 } vm_t;
 
@@ -191,7 +206,10 @@ static char s_log_id[LUAPP_ID_MAX + 1];
 static char s_running[LUAPP_ID_MAX + 1];   /* "" when none */
 
 /* The HTTP request the fetch task is on (under s_log_mux too: tiny). */
-static char s_http_url[URL_MAX + 1];
+EXT_RAM_BSS_ATTR static char s_http_url[URL_MAX + 1];
+static char s_http_method[8];
+static char *s_http_headers, *s_http_body;   /* handed to the fetch task with the URL */
+static size_t s_http_body_len;
 static uint32_t s_http_gen;
 
 static int64_t now_us(void) { return esp_timer_get_time(); }
@@ -284,8 +302,19 @@ static int msgh(lua_State *L)
 
 static void stop_app(const char *error, const char *why);
 
-/* Calls the function under its nargs arguments; false (and the app stopped) on error. */
-static bool call(int nargs, int limit_ms)
+/* Calls the function under its nargs arguments; false (and the app stopped)
+ * on error. With nres > 0 the results stay on the stack and app.exit waits
+ * for after_call(). */
+static bool call_n(int nargs, int nres, int limit_ms);
+static bool call(int nargs, int limit_ms) { return call_n(nargs, 0, limit_ms); }
+
+static void after_call(void)
+{
+    luapp_gfx_flush();   /* draw what the canvases recorded */
+    if (V.exit_req) stop_app(NULL, "app.exit");
+}
+
+static bool call_n(int nargs, int nres, int limit_ms)
 {
     lua_State *L = V.L;
     int base = lua_gettop(L) - nargs;
@@ -293,7 +322,9 @@ static bool call(int nargs, int limit_ms)
     lua_insert(L, base);
     V.limit_ms = limit_ms;
     V.deadline = now_us() + (int64_t)limit_ms * 1000;
-    int rc = lua_pcall(L, nargs, 0, base);
+    int64_t t0 = now_us();
+    int rc = lua_pcall(L, nargs, nres, base);
+    luapp_perf_lua(now_us() - t0);
     lua_remove(L, base);
     if (rc != LUA_OK) {
         int req = atomic_exchange(&s_stop_req, STOP_NONE);
@@ -308,8 +339,7 @@ static bool call(int nargs, int limit_ms)
         stop_app(err, "error");
         return false;
     }
-    luapp_gfx_flush();   /* draw what the canvases recorded */
-    if (V.exit_req) stop_app(NULL, "app.exit");
+    if (nres == 0) after_call();
     return true;
 }
 
@@ -342,20 +372,28 @@ enum {
     P_START = 1 << 18, P_SWEEP = 1 << 19, P_POINTS = 1 << 20, P_TEXT_COLOR = 1 << 21, P_TAP = 1 << 22,
     P_IMG = 1 << 23, P_SCALE = 1 << 24, P_ANGLE = 1 << 25, P_TOUCH = 1 << 26, P_ZOOM = 1 << 27,
 };
+#define P_OPTIONS (1ULL << 28)   /* roller options, list items */
+#define P_CHANGE (1ULL << 29)    /* on_change / on_select */
+#define P_PARENT (1ULL << 30)    /* in a ui.scroll */
+#define P_ROWS (1ULL << 31)      /* roller: visible rows */
+#define OPTS_MAX 4096            /* joined options or items */
 
 typedef struct {
-    uint32_t has;
+    uint64_t has;
     int x, y, w, h, size, radius, border, opacity, align, r, width, start, sweep;
     uint32_t color, bg, border_color, text_color;
     int value, min, max;
-    int scale, angle, zoom;
+    int scale, angle, zoom, rows;
+    int parent;                /* widget index of the scroll it's in */
+    char *opts;                /* PSRAM, "\n"-joined; freed by the caller */
+    int nopts;
     luapp_img_t *img;          /* held by the arguments; referenced when applied */
     char text[TEXT_MAX + 1];
     lv_point_precise_t *pts;   /* PSRAM; ownership passes to the widget */
     int npts;
 } props_t;
 
-static int int_field(lua_State *L, int t, const char *k, uint32_t bit, uint32_t *has, int lo, int hi)
+static int int_field(lua_State *L, int t, const char *k, uint64_t bit, uint64_t *has, int lo, int hi)
 {
     int v = 0;
     if (lua_getfield(L, t, k) != LUA_TNIL) {
@@ -367,6 +405,8 @@ static int int_field(lua_State *L, int t, const char *k, uint32_t bit, uint32_t 
     lua_pop(L, 1);
     return v;
 }
+
+static int parent_arg(lua_State *L, int i);
 
 static void read_props(lua_State *L, int t, props_t *p)
 {
@@ -423,20 +463,73 @@ static void read_props(lua_State *L, int t, props_t *p)
         p->has |= P_TAP;
     }
     lua_pop(L, 1);
+    p->rows = int_field(L, t, "rows", P_ROWS, &p->has, 1, 9);
+    if (lua_getfield(L, t, "on_change") != LUA_TNIL || (lua_pop(L, 1), lua_getfield(L, t, "on_select")) != LUA_TNIL) {
+        luaL_checktype(L, -1, LUA_TFUNCTION);
+        p->has |= P_CHANGE;
+    }
+    lua_pop(L, 1);
+    if (lua_getfield(L, t, "parent") != LUA_TNIL) {
+        p->parent = parent_arg(L, -1);
+        p->has |= P_PARENT;
+    }
+    lua_pop(L, 1);
+    /* Allocated last (with the points): nothing below can raise once they're held. */
+    const char *okey = lua_getfield(L, t, "options") != LUA_TNIL ? "options" : (lua_pop(L, 1), lua_getfield(L, t, "items")) != LUA_TNIL ? "items" : NULL;
+    if (okey) {
+        luaL_checktype(L, -1, LUA_TTABLE);
+        int n = (int)lua_rawlen(L, -1);
+        if (n < 1 || n > 100) luaL_error(L, "%s: 1 to 100 strings", okey);
+        size_t total = 0;
+        for (int i = 1; i <= n; i++) {
+            lua_rawgeti(L, -1, i);
+            size_t len;
+            if (!lua_isstring(L, -1)) luaL_error(L, "%s must be strings", okey);
+            lua_tolstring(L, -1, &len);
+            total += (len > 64 ? 64 : len) + 1;
+            lua_pop(L, 1);
+        }
+        if (total > OPTS_MAX) luaL_error(L, "%s: too much text (%d bytes at most)", okey, OPTS_MAX);
+        p->opts = heap_caps_malloc(total + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!p->opts) luaL_error(L, "out of memory");
+        size_t o = 0;
+        for (int i = 1; i <= n; i++) {
+            lua_rawgeti(L, -1, i);
+            size_t len;
+            const char *s = lua_tolstring(L, -1, &len);
+            if (len > 64) len = 64;
+            for (size_t k = 0; k < len; k++) p->opts[o++] = s[k] == '\n' ? ' ' : s[k];
+            p->opts[o++] = i < n ? '\n' : 0;
+            lua_pop(L, 1);
+        }
+        p->opts[o] = 0;
+        p->nopts = n;
+        p->has |= P_OPTIONS;
+    }
+    lua_pop(L, 1);
     /* Points last: nothing below can raise an error once they're allocated. */
     if (lua_getfield(L, t, "points") != LUA_TNIL) {
         luaL_checktype(L, -1, LUA_TTABLE);
         int n = (int)lua_rawlen(L, -1);
-        if (n < 4 || n % 2 || n / 2 > MAX_POINTS) luaL_error(L, "points: 2 to %d x,y pairs", MAX_POINTS);
+        if (n < 4 || n % 2 || n / 2 > MAX_POINTS) {
+            heap_caps_free(p->opts);
+            luaL_error(L, "points: 2 to %d x,y pairs", MAX_POINTS);
+        }
         double xy[2 * MAX_POINTS];
         for (int i = 0; i < n; i++) {
             lua_rawgeti(L, -1, i + 1);
-            if (!lua_isnumber(L, -1)) luaL_error(L, "points must be numbers");
+            if (!lua_isnumber(L, -1)) {
+                heap_caps_free(p->opts);
+                luaL_error(L, "points must be numbers");
+            }
             xy[i] = lua_tonumber(L, -1);
             lua_pop(L, 1);
         }
         p->pts = heap_caps_malloc(sizeof(lv_point_precise_t) * (n / 2), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (!p->pts) luaL_error(L, "out of memory");
+        if (!p->pts) {
+            heap_caps_free(p->opts);
+            luaL_error(L, "out of memory");
+        }
         for (int i = 0; i < n / 2; i++) {
             p->pts[i].x = (int32_t)lround(xy[2 * i]) + 233;   /* centre-relative to the tile's corner */
             p->pts[i].y = (int32_t)lround(xy[2 * i + 1]) + 233;
@@ -453,6 +546,47 @@ static void on_button(lv_event_t *e)
     luapp_vm_tap((int)(v & 0x7f), (uint32_t)(v >> 8), 0, 0);
 }
 
+static msg_t *new_msg(uint8_t type);
+static bool post(msg_t *m);
+
+/* A roller, slider or switch changed, or a list item was tapped (LVGL task).
+ * Coalesced like drags: the latest value waits, one message at a time. */
+static atomic_int s_chg_val[MAX_W];
+static atomic_bool s_chg_pending[MAX_W];
+
+static void on_change(lv_event_t *e)
+{
+    uintptr_t v = (uintptr_t)lv_event_get_user_data(e);
+    int idx = (int)(v & 0x7f);
+    lv_obj_t *o = lv_event_get_current_target(e);
+    int val;
+    if (lv_obj_check_type(o, &lv_roller_class)) val = (int)lv_roller_get_selected(o) + 1;
+    else if (lv_obj_check_type(o, &lv_slider_class)) val = (int)lv_slider_get_value(o);
+    else if (lv_obj_check_type(o, &lv_switch_class)) val = lv_obj_has_state(o, LV_STATE_CHECKED);
+    else val = (int)(intptr_t)lv_obj_get_user_data(o);   /* a list item: its number */
+    atomic_store(&s_chg_val[idx], val);
+    if (atomic_exchange(&s_chg_pending[idx], true)) return;
+    msg_t *m = new_msg(M_CHANGE);
+    if (!m) {
+        atomic_store(&s_chg_pending[idx], false);
+        return;
+    }
+    m->widget = idx;
+    m->gen = (uint32_t)(v >> 8) & 0xffffff;
+    if (!post(m)) atomic_store(&s_chg_pending[idx], false);
+}
+
+/* ui.animate's on_done (LVGL task). */
+static void on_anim_done(lv_anim_t *a)
+{
+    uintptr_t v = (uintptr_t)lv_anim_get_user_data(a);
+    msg_t *m = new_msg(M_ANIM);
+    if (!m) return;
+    m->widget = (int)(v & 0x7f);
+    m->gen = (uint32_t)(v >> 8) & 0xffffff;
+    post(m);
+}
+
 /* Canvas touches (LVGL task). A drag's moves are coalesced: one message in
  * the queue at a time, carrying the latest point. */
 static atomic_int s_mv_x, s_mv_y;
@@ -460,9 +594,6 @@ static atomic_bool s_mv_queued;
 static uint32_t s_press_tick;
 static lv_point_t s_press_pt, s_last_pt;
 static bool s_press_exited;
-
-static msg_t *new_msg(uint8_t type);
-static bool post(msg_t *m);
 
 static void post_touch(int widget, uint32_t gen, int kind, int x, int y)
 {
@@ -645,6 +776,104 @@ static void apply(widget_t *w, props_t *p, bool create)
     case W_CANVAS:
         if (p->has & P_COLOR) luapp_canvas_set_color(w->canvas, p->color);
         break;
+    case W_ROLLER:
+        if (p->has & P_OPTIONS) lv_roller_set_options(o, p->opts, LV_ROLLER_MODE_NORMAL);
+        if ((p->has & P_ROWS) || create) lv_roller_set_visible_row_count(o, (p->has & P_ROWS) ? (uint32_t)p->rows : 3);
+        if (p->has & P_W) lv_obj_set_width(o, p->w);
+        if ((p->has & P_SIZE) || create) {
+            const lv_font_t *f = luapp_font((p->has & P_SIZE) ? p->size : 20);
+            lv_obj_set_style_text_font(o, f, LV_PART_MAIN);
+            lv_obj_set_style_text_font(o, f, LV_PART_SELECTED);
+        }
+        if ((p->has & P_BG) || create) {
+            lv_obj_set_style_bg_color(o, lv_color_hex((p->has & P_BG) ? p->bg : 0x1c1c1e), LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(o, LV_OPA_COVER, LV_PART_MAIN);
+            lv_obj_set_style_border_width(o, 0, LV_PART_MAIN);
+        }
+        if ((p->has & P_TEXT_COLOR) || create) {
+            lv_obj_set_style_text_color(o, lv_color_hex((p->has & P_TEXT_COLOR) ? p->text_color : 0x8e8e93), LV_PART_MAIN);
+        }
+        if ((p->has & P_COLOR) || create) {
+            lv_obj_set_style_bg_color(o, lv_color_hex((p->has & P_COLOR) ? p->color : 0x27d3a2), LV_PART_SELECTED);
+            lv_obj_set_style_bg_opa(o, LV_OPA_COVER, LV_PART_SELECTED);
+            lv_obj_set_style_text_color(o, lv_color_black(), LV_PART_SELECTED);
+        }
+        if (p->has & P_RADIUS) lv_obj_set_style_radius(o, p->radius, LV_PART_MAIN);
+        if (p->has & P_VALUE) lv_roller_set_selected(o, p->value > 0 ? (uint32_t)p->value - 1 : 0, create ? LV_ANIM_OFF : LV_ANIM_ON);
+        break;
+    case W_SLIDER:
+        if ((p->has & (P_W | P_H)) || create) {
+            lv_obj_set_size(o, (p->has & P_W) ? p->w : (create ? 240 : lv_obj_get_width(o)),
+                            (p->has & P_H) ? p->h : (create ? 10 : lv_obj_get_height(o)));
+        }
+        if ((p->has & (P_MIN | P_MAX)) || create) lv_slider_set_range(o, (p->has & P_MIN) ? p->min : 0, (p->has & P_MAX) ? p->max : 100);
+        if ((p->has & P_VALUE) || create) lv_slider_set_value(o, (p->has & P_VALUE) ? p->value : 0, LV_ANIM_OFF);
+        if ((p->has & P_COLOR) || create) {
+            lv_color_t c = lv_color_hex((p->has & P_COLOR) ? p->color : 0x27d3a2);
+            lv_obj_set_style_bg_color(o, c, LV_PART_INDICATOR);
+            lv_obj_set_style_bg_color(o, lv_color_white(), LV_PART_KNOB);
+        }
+        if ((p->has & P_BG) || create) lv_obj_set_style_bg_color(o, lv_color_hex((p->has & P_BG) ? p->bg : 0x2c2c2e), LV_PART_MAIN);
+        break;
+    case W_SWITCH:
+        if (p->has & (P_W | P_H)) {
+            lv_obj_set_size(o, (p->has & P_W) ? p->w : lv_obj_get_width(o), (p->has & P_H) ? p->h : lv_obj_get_height(o));
+        } else if (create) {
+            lv_obj_set_size(o, 64, 36);
+        }
+        if (p->has & P_VALUE) lv_obj_set_state(o, LV_STATE_CHECKED, p->value != 0);
+        if ((p->has & P_COLOR) || create) {
+            lv_obj_set_style_bg_color(o, lv_color_hex((p->has & P_COLOR) ? p->color : 0x27d3a2), LV_PART_INDICATOR | LV_STATE_CHECKED);
+        }
+        if ((p->has & P_BG) || create) lv_obj_set_style_bg_color(o, lv_color_hex((p->has & P_BG) ? p->bg : 0x3a3a3c), LV_PART_INDICATOR);
+        break;
+    case W_LIST:
+        if (p->has & P_SIZE) w->scale = (int16_t)p->size;   /* a list keeps its items' text size here */
+        if ((p->has & (P_W | P_H)) || create) {
+            lv_obj_set_size(o, (p->has & P_W) ? p->w : (create ? 300 : lv_obj_get_width(o)),
+                            (p->has & P_H) ? p->h : (create ? 260 : lv_obj_get_height(o)));
+        }
+        if ((p->has & P_BG) || create) {
+            lv_obj_set_style_bg_color(o, lv_color_hex((p->has & P_BG) ? p->bg : 0x000000), 0);
+            lv_obj_set_style_bg_opa(o, (p->has & P_BG) ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+            lv_obj_set_style_border_width(o, 0, 0);
+            lv_obj_set_style_pad_row(o, 6, 0);
+        }
+        if (p->has & P_OPTIONS) {
+            lv_obj_clean(o);
+            void *ud = (void *)(uintptr_t)((int)(w - V.w) | (V.gen << 8));
+            const lv_font_t *f = luapp_font(w->scale > 0 ? w->scale : 20);
+            uint32_t bg = (p->has & P_COLOR) ? p->color : 0x1c1c1e;
+            uint32_t tc = (p->has & P_TEXT_COLOR) ? p->text_color : 0xffffff;
+            char *s = p->opts;
+            for (int i = 1; s && i <= p->nopts; i++) {
+                char *nl = strchr(s, '\n');
+                if (nl) *nl = 0;
+                lv_obj_t *b = lv_list_add_button(o, NULL, s);
+                lv_obj_set_user_data(b, (void *)(intptr_t)i);
+                lv_obj_set_style_bg_color(b, lv_color_hex(bg), 0);
+                lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+                lv_obj_set_style_radius(b, 14, 0);
+                lv_obj_set_style_border_width(b, 0, 0);
+                lv_obj_set_style_text_color(b, lv_color_hex(tc), 0);
+                lv_obj_set_style_text_font(b, f, 0);
+                lv_obj_set_style_pad_ver(b, 12, 0);
+                lv_obj_add_event_cb(b, on_change, LV_EVENT_SHORT_CLICKED, ud);
+                s = nl ? nl + 1 : NULL;
+            }
+        }
+        break;
+    case W_SCROLL:
+        if ((p->has & (P_W | P_H)) || create) {
+            lv_obj_set_size(o, (p->has & P_W) ? p->w : (create ? 360 : lv_obj_get_width(o)),
+                            (p->has & P_H) ? p->h : (create ? 300 : lv_obj_get_height(o)));
+        }
+        if (p->has & P_COLOR) {
+            lv_obj_set_style_bg_color(o, lv_color_hex(p->color), 0);
+            lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+        }
+        if (p->has & P_RADIUS) lv_obj_set_style_radius(o, p->radius, 0);
+        break;
     }
 }
 
@@ -671,11 +900,25 @@ static void set_ref(lua_State *L, int *ref, int t, const char *field)
     *ref = luaL_ref(L, LUA_REGISTRYINDEX);
 }
 
+static void set_change_ref(lua_State *L, widget_t *w, int t)
+{
+    set_ref(L, &w->change_ref, t, lua_getfield(L, t, "on_change") != LUA_TNIL ? "on_change" : "on_select");
+    lua_pop(L, 1);
+}
+
 int luapp_canvas_arg(lua_State *L, int idx)
 {
     widget_t *w = check_widget(L, idx);
     if (w->kind != W_CANVAS) luaL_error(L, "only a canvas can draw (ui.canvas)");
     return w->canvas;
+}
+
+/* A widget's parent: a ui.scroll (raises otherwise). */
+static int parent_arg(lua_State *L, int i)
+{
+    widget_t *pw = check_widget(L, i);
+    if (pw->kind != W_SCROLL) luaL_error(L, "parent must be a ui.scroll");
+    return (int)(pw - V.w);
 }
 
 static int create(lua_State *L, wkind_t kind)
@@ -694,13 +937,16 @@ static int create(lua_State *L, wkind_t kind)
             break;
         }
     }
-    if (idx < 0 || (kind == W_LINE && !(p.has & P_POINTS))) {
+    const char *bad = idx < 0 ? "too many widgets (max 96)"
+                    : kind == W_LINE && !(p.has & P_POINTS) ? "a line needs points"
+                    : kind == W_IMAGE && !(p.has & P_IMG) ? "ui.image needs img (from gfx.image or gfx.sprite)"
+                    : (p.has & P_PARENT) && (kind == W_LINE || kind == W_CANVAS || kind == W_SCROLL)
+                        ? "lines, canvases and scrolls can't go in a scroll"
+                    : NULL;
+    if (bad) {
         heap_caps_free(p.pts);
-        return luaL_error(L, idx < 0 ? "too many widgets (max %d)" : "a line needs points", MAX_W);
-    }
-    if (kind == W_IMAGE && !(p.has & P_IMG)) {
-        heap_caps_free(p.pts);
-        return luaL_error(L, "ui.image needs img (from gfx.image or gfx.sprite)");
+        heap_caps_free(p.opts);
+        return luaL_error(L, "%s", bad);
     }
     int slot = -1;
     if (kind == W_CANVAS) {
@@ -708,6 +954,8 @@ static int create(lua_State *L, wkind_t kind)
         int cw = (p.has & P_W) ? p.w : 200, chh = (p.has & P_H) ? p.h : 200, zoom = (p.has & P_ZOOM) ? p.zoom : 1;
         heap_caps_free(p.pts);   /* a canvas has no points */
         p.pts = NULL;
+        heap_caps_free(p.opts);
+        p.opts = NULL;
         if (cw * zoom > 466 || chh * zoom > 466) {
             return luaL_error(L, "ui.canvas: w and h times zoom must fit the 466 px screen (zoom=2: up to 233)");
         }
@@ -720,13 +968,17 @@ static int create(lua_State *L, wkind_t kind)
     w->kind = (uint8_t)kind;
     w->tap_ref = LUA_NOREF;
     w->touch_ref = LUA_NOREF;
+    w->change_ref = LUA_NOREF;
+    w->anim_ref = LUA_NOREF;
+    w->parent = (int8_t)((p.has & P_PARENT) ? p.parent : -1);
     w->canvas = (int8_t)slot;
     if (!lock()) {
         heap_caps_free(p.pts);
+        heap_caps_free(p.opts);
         luapp_canvas_free(slot);
         return luaL_error(L, "the screen is busy");
     }
-    lv_obj_t *root = luapp_ui_app_root();
+    lv_obj_t *root = w->parent >= 0 ? V.w[w->parent].obj : luapp_ui_app_root();
     switch (kind) {
     case W_LABEL: w->obj = lv_label_create(root); break;
     case W_ARC:
@@ -741,14 +993,31 @@ static int create(lua_State *L, wkind_t kind)
         w->obj = lv_canvas_create(root);
         luapp_canvas_attach(slot, w->obj, (p.has & P_ZOOM) ? p.zoom : 1);
         break;
+    case W_ROLLER: w->obj = lv_roller_create(root); break;
+    case W_SLIDER: w->obj = lv_slider_create(root); break;
+    case W_SWITCH: w->obj = lv_switch_create(root); break;
+    case W_LIST: w->obj = lv_list_create(root); break;
+    case W_SCROLL:
+        w->obj = lv_obj_create(root);
+        lv_obj_remove_style_all(w->obj);
+        lv_obj_set_scroll_dir(w->obj, LV_DIR_VER);
+        lv_obj_set_scrollbar_mode(w->obj, LV_SCROLLBAR_MODE_OFF);
+        break;
     default:
         w->obj = lv_obj_create(root);
         lv_obj_remove_style_all(w->obj);
         lv_obj_set_size(w->obj, kind == W_BUTTON ? 140 : 100, kind == W_BUTTON ? 48 : 100);
         break;
     }
-    lv_obj_remove_flag(w->obj, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_flag(w->obj, LV_OBJ_FLAG_CLICKABLE);
+    bool scrolls = kind == W_ROLLER || kind == W_LIST || kind == W_SCROLL;
+    bool input = scrolls || kind == W_SLIDER || kind == W_SWITCH;
+    if (!scrolls) lv_obj_remove_flag(w->obj, LV_OBJ_FLAG_SCROLLABLE);
+    if (!input) lv_obj_remove_flag(w->obj, LV_OBJ_FLAG_CLICKABLE);
+    if (kind == W_ROLLER || kind == W_SLIDER || kind == W_SWITCH) {
+        /* Their drags are theirs: they don't swipe to the next screen. */
+        lv_obj_remove_flag(w->obj, LV_OBJ_FLAG_SCROLL_CHAIN_HOR | LV_OBJ_FLAG_SCROLL_CHAIN_VER);
+        lv_obj_add_event_cb(w->obj, on_change, LV_EVENT_VALUE_CHANGED, (void *)(uintptr_t)(idx | (V.gen << 8)));
+    }
     if (kind == W_BUTTON) {
         w->lbl = lv_label_create(w->obj);
         lv_obj_center(w->lbl);
@@ -777,9 +1046,12 @@ static int create(lua_State *L, wkind_t kind)
     apply(w, &p, true);
     unlock();
     heap_caps_free(p.pts);
+    heap_caps_free(p.opts);
     w->used = true;
+    atomic_store(&s_chg_pending[idx], false);
     if (p.has & P_TAP) set_ref(L, &w->tap_ref, 1, "on_tap");
     if (p.has & P_TOUCH) set_ref(L, &w->touch_ref, 1, "on_touch");
+    if (p.has & P_CHANGE) set_change_ref(L, w, 1);
     return 1;
 }
 
@@ -799,13 +1071,16 @@ static int w_set(lua_State *L)
     read_props(L, 2, &p);
     if (!lock()) {
         heap_caps_free(p.pts);
+        heap_caps_free(p.opts);
         return luaL_error(L, "the screen is busy");
     }
     apply(w, &p, false);
     unlock();
     heap_caps_free(p.pts);
+    heap_caps_free(p.opts);
     if (p.has & P_TAP) set_ref(L, &w->tap_ref, 2, "on_tap");
     if (p.has & P_TOUCH) set_ref(L, &w->touch_ref, 2, "on_touch");
+    if (p.has & P_CHANGE) set_change_ref(L, w, 2);
     lua_settop(L, 1);
     return 1;
 }
@@ -831,16 +1106,32 @@ static void free_widget(lua_State *L, widget_t *w, bool delete_obj)
     if (w->used && w->kind == W_CANVAS) luapp_canvas_free(w->canvas);
     if (L && w->tap_ref != LUA_NOREF) luaL_unref(L, LUA_REGISTRYINDEX, w->tap_ref);
     if (L && w->touch_ref != LUA_NOREF) luaL_unref(L, LUA_REGISTRYINDEX, w->touch_ref);
+    if (L && w->change_ref != LUA_NOREF) luaL_unref(L, LUA_REGISTRYINDEX, w->change_ref);
+    if (L && w->anim_ref != LUA_NOREF) luaL_unref(L, LUA_REGISTRYINDEX, w->anim_ref);
     memset(w, 0, sizeof(*w));
+}
+
+/* The widgets in a scroll whose LVGL object was just deleted (theirs went
+ * with it): free their slots too. */
+static void free_children(lua_State *L, int parent)
+{
+    for (int i = 0; i < MAX_W; i++) {
+        if (V.w[i].used && V.w[i].parent == parent) {
+            V.w[i].obj = NULL;
+            free_children(L, i);
+            free_widget(L, &V.w[i], false);
+        }
+    }
 }
 
 static int w_delete(lua_State *L)
 {
     widget_t *w = check_widget(L, 1);
     if (!lock()) return luaL_error(L, "the screen is busy");
-    lv_obj_delete(w->obj);
+    lv_obj_delete(w->obj);   /* and its children's, in a scroll */
     w->obj = NULL;
     unlock();
+    free_children(L, (int)(w - V.w));
     free_widget(L, w, false);
     return 0;
 }
@@ -848,18 +1139,151 @@ static int w_delete(lua_State *L)
 static int l_clear(lua_State *L)
 {
     if (!lock()) return luaL_error(L, "the screen is busy");
-    for (int i = 0; i < MAX_W; i++) {
-        if (V.w[i].used && V.w[i].obj) {
-            lv_obj_delete(V.w[i].obj);
-            V.w[i].obj = NULL;
-        }
+    for (int i = 0; i < MAX_W; i++) {   /* top level only: a scroll takes its children with it */
+        if (V.w[i].used && V.w[i].obj && V.w[i].parent < 0) lv_obj_delete(V.w[i].obj);
     }
+    for (int i = 0; i < MAX_W; i++) V.w[i].obj = NULL;
     unlock();
     for (int i = 0; i < MAX_W; i++) {
         if (V.w[i].used) free_widget(L, &V.w[i], false);
     }
     return 0;
 }
+
+/* ---- ui.animate ---- */
+
+static void ax(void *o, int32_t v) { lv_obj_set_x(o, v); }
+static void ay(void *o, int32_t v) { lv_obj_set_y(o, v); }
+static void aopa(void *o, int32_t v) { lv_obj_set_style_opa(o, (lv_opa_t)v, 0); }
+static void aw(void *o, int32_t v) { lv_obj_set_width(o, v); }
+static void ah(void *o, int32_t v) { lv_obj_set_height(o, v); }
+static void arot(void *o, int32_t v) { lv_image_set_rotation(o, v); }
+static void ascale(void *o, int32_t v) { lv_image_set_scale(o, (uint32_t)(v < 1 ? 1 : v)); }
+static void aarc(void *o, int32_t v) { lv_arc_set_value(o, v); }
+static void abar(void *o, int32_t v) { lv_bar_set_value(o, v, LV_ANIM_OFF); }
+static void aslider(void *o, int32_t v) { lv_slider_set_value(o, v, LV_ANIM_OFF); }
+
+static bool num_field(lua_State *L, int t, const char *k, double *out)
+{
+    bool has = lua_getfield(L, t, k) != LUA_TNIL;
+    if (has) *out = luaL_checknumber(L, -1);
+    lua_pop(L, 1);
+    return has;
+}
+
+/* ui.animate(w, {x, y, opacity, w, h, value, angle, scale}, ms, {ease, delay,
+ * ["repeat"], reverse, on_done}): LVGL animates it on its own, a frame at a
+ * time, with no Lua per frame. */
+static int l_animate(lua_State *L)
+{
+    widget_t *w = check_widget(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE);
+    int ms = (int)luaL_optinteger(L, 3, 300);
+    ms = ms < 1 ? 1 : ms > 60000 ? 60000 : ms;
+    lv_anim_path_cb_t path = lv_anim_path_ease_in_out;
+    int delay = 0, repeat = 0;
+    bool reverse = false, done = false;
+    if (lua_istable(L, 4)) {
+        if (lua_getfield(L, 4, "ease") != LUA_TNIL) {
+            const char *e = luaL_checkstring(L, -1);
+            path = !strcmp(e, "linear") ? lv_anim_path_linear : !strcmp(e, "in") ? lv_anim_path_ease_in
+                 : !strcmp(e, "out") ? lv_anim_path_ease_out : !strcmp(e, "overshoot") ? lv_anim_path_overshoot
+                 : !strcmp(e, "bounce") ? lv_anim_path_bounce : !strcmp(e, "step") ? lv_anim_path_step
+                 : lv_anim_path_ease_in_out;
+        }
+        lua_pop(L, 1);
+        if (lua_getfield(L, 4, "delay") != LUA_TNIL) delay = (int)luaL_checkinteger(L, -1);
+        lua_pop(L, 1);
+        int rt = lua_getfield(L, 4, "repeat");
+        if (rt == LUA_TBOOLEAN) repeat = lua_toboolean(L, -1) ? -1 : 0;
+        else if (rt != LUA_TNIL) repeat = (int)luaL_checkinteger(L, -1);
+        lua_pop(L, 1);
+        if (lua_getfield(L, 4, "reverse") != LUA_TNIL) reverse = lua_toboolean(L, -1);
+        lua_pop(L, 1);
+        if (lua_getfield(L, 4, "on_done") != LUA_TNIL) {
+            luaL_checktype(L, -1, LUA_TFUNCTION);
+            done = true;
+        }
+        lua_pop(L, 1);
+    }
+    double x = 0, y = 0, opa = 0, ww = 0, hh = 0, val = 0, ang = 0, sc = 0;
+    bool hx = num_field(L, 2, "x", &x), hy = num_field(L, 2, "y", &y), ho = num_field(L, 2, "opacity", &opa);
+    bool hw = num_field(L, 2, "w", &ww), hh_ = num_field(L, 2, "h", &hh), hv = num_field(L, 2, "value", &val);
+    bool ha = num_field(L, 2, "angle", &ang), hs = num_field(L, 2, "scale", &sc);
+    if (!lock()) return luaL_error(L, "the screen is busy");
+    lv_obj_t *o = w->obj;
+    int idx = (int)(w - V.w);
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, o);
+    lv_anim_set_duration(&a, (uint32_t)ms);
+    lv_anim_set_delay(&a, (uint32_t)(delay < 0 ? 0 : delay));
+    lv_anim_set_path_cb(&a, path);
+    if (repeat) lv_anim_set_repeat_count(&a, repeat < 0 ? LV_ANIM_REPEAT_INFINITE : (uint32_t)repeat);
+    if (reverse) lv_anim_set_reverse_duration(&a, (uint32_t)ms);
+    lv_anim_set_user_data(&a, (void *)(uintptr_t)(idx | (V.gen << 8)));
+    int started = 0;
+#define GO(cb, from, to)                                                    \
+    do {                                                                    \
+        lv_anim_delete(o, cb);                                              \
+        lv_anim_set_exec_cb(&a, cb);                                        \
+        lv_anim_set_values(&a, (int32_t)(from), (int32_t)(to));             \
+        lv_anim_set_completed_cb(&a, done && !started ? on_anim_done : NULL); \
+        lv_anim_start(&a);                                                  \
+        started++;                                                          \
+    } while (0)
+    if (hx) { GO(ax, lv_obj_get_style_x(o, 0), lround(x)); w->x = (int16_t)lround(x); }
+    if (hy) { GO(ay, lv_obj_get_style_y(o, 0), lround(y)); w->y = (int16_t)lround(y); }
+    if (ho) GO(aopa, lv_obj_get_style_opa(o, 0), opa < 0 ? 0 : opa > 255 ? 255 : lround(opa));
+    if (hw) GO(aw, lv_obj_get_width(o), lround(ww));
+    if (hh_) GO(ah, lv_obj_get_height(o), lround(hh));
+    if (hv && w->kind == W_ARC) GO(aarc, lv_arc_get_value(o), lround(val));
+    if (hv && w->kind == W_BAR) GO(abar, lv_bar_get_value(o), lround(val));
+    if (hv && w->kind == W_SLIDER) GO(aslider, lv_slider_get_value(o), lround(val));
+    if (ha && w->kind == W_IMAGE) {
+        lv_image_set_antialias(o, true);
+        GO(arot, lv_image_get_rotation(o), lround(ang * 10));
+    }
+    if (hs && w->kind == W_IMAGE && w->img) {
+        w->scale = (int16_t)(sc < 1 ? 1 : sc > 1600 ? 1600 : lround(sc));
+        GO(ascale, lv_image_get_scale(o), (int32_t)w->scale * 256 * w->img->scale / 100);
+    }
+#undef GO
+    unlock();
+    if (done && started) {
+        if (w->anim_ref != LUA_NOREF) luaL_unref(L, LUA_REGISTRYINDEX, w->anim_ref);
+        lua_getfield(L, 4, "on_done");
+        w->anim_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    }
+    return 0;
+}
+
+static int w_stop(lua_State *L)
+{
+    widget_t *w = check_widget(L, 1);
+    if (!lock()) return luaL_error(L, "the screen is busy");
+    lv_anim_delete(w->obj, NULL);
+    unlock();
+    return 0;
+}
+
+static int l_on_swipe(lua_State *L)
+{
+    if (V.swipe_ref != LUA_NOREF) luaL_unref(L, LUA_REGISTRYINDEX, V.swipe_ref);
+    V.swipe_ref = LUA_NOREF;
+    if (!lua_isnoneornil(L, 1)) {
+        luaL_checktype(L, 1, LUA_TFUNCTION);
+        lua_pushvalue(L, 1);
+        V.swipe_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    }
+    return 0;
+}
+
+static int l_roller(lua_State *L) { return create(L, W_ROLLER); }
+static int l_slider(lua_State *L) { return create(L, W_SLIDER); }
+static int l_switch(lua_State *L) { return create(L, W_SWITCH); }
+static int l_list(lua_State *L) { return create(L, W_LIST); }
+static int l_scroll(lua_State *L) { return create(L, W_SCROLL); }
 
 static int l_background(lua_State *L)
 {
@@ -886,7 +1310,7 @@ static int add_timer(lua_State *L, bool repeat)
 {
     lua_Integer ms = luaL_checkinteger(L, 1);
     luaL_checktype(L, 2, LUA_TFUNCTION);
-    if (ms < 50) ms = 50;
+    if (ms < 16) ms = 16;   /* ~60 fps; the loop's pacing keeps Muse's share */
     for (int i = 0; i < MAX_TIMERS; i++) {
         if (V.t[i].id == 0) {
             lua_pushvalue(L, 2);
@@ -951,67 +1375,199 @@ static int l_utc(lua_State *L) { return push_date(L, false); }
 
 static void http_job(uint32_t gen);
 
+static void http_free(vhttp_t *h)
+{
+    free(h->headers);
+    free(h->body);
+    h->headers = h->body = NULL;
+}
+
 static void http_kick(void)
 {
     if (V.http_busy || V.http_n == 0) return;
+    vhttp_t *h = &V.http[0];
+    char *old_h, *old_b;
     taskENTER_CRITICAL(&s_log_mux);
-    strlcpy(s_http_url, V.http[0].url, sizeof(s_http_url));
+    strlcpy(s_http_url, h->url, sizeof(s_http_url));
+    strlcpy(s_http_method, h->method[0] ? h->method : "GET", sizeof(s_http_method));
+    old_h = s_http_headers;   /* a job that never ran */
+    old_b = s_http_body;
+    s_http_headers = h->headers;
+    s_http_body = h->body;
+    s_http_body_len = h->body_len;
     s_http_gen = V.gen;
     taskEXIT_CRITICAL(&s_log_mux);
-    V.http_busy = apps_net_submit(http_job, V.http[0].id);
+    h->headers = h->body = NULL;   /* the fetch task's now */
+    free(old_h);
+    free(old_b);
+    V.http_busy = apps_net_submit(http_job, h->id);
 }
 
-static int l_http_get(lua_State *L)
+#define HTTP_SEND_MAX (16 * 1024)
+#define HTTP_HEADERS_MAX 1024
+
+/* http.get(url, fn [, headers]), http.post(url, body, fn [, headers]) and
+ * http.request{url=, method=, headers=, body=}, fn: body a string, or a table
+ * sent as JSON (Content-Type: application/json unless headers say otherwise). */
+static int http_add(lua_State *L, const char *url, const char *method, int headers_idx, int body_idx, int fn_idx)
 {
-    size_t n;
-    const char *url = luaL_checklstring(L, 1, &n);
-    luaL_checktype(L, 2, LUA_TFUNCTION);
+    size_t n = strlen(url);
+    luaL_checktype(L, fn_idx, LUA_TFUNCTION);
     if (n > URL_MAX || (strncmp(url, "https://", 8) && strncmp(url, "http://", 7))) {
-        return luaL_error(L, "http.get needs an http(s) URL of up to %d characters", URL_MAX);
+        return luaL_error(L, "http: an http(s) URL of up to %d characters", URL_MAX);
     }
     if (V.http_n >= MAX_HTTP) return luaL_error(L, "too many HTTP requests waiting (max %d)", MAX_HTTP);
+    luaL_Buffer hb;
+    luaL_buffinit(L, &hb);
+    bool has_type = false;
+    if (headers_idx && lua_istable(L, headers_idx)) {
+        lua_pushnil(L);
+        while (lua_next(L, headers_idx)) {
+            if (lua_type(L, -2) == LUA_TSTRING && (lua_type(L, -1) == LUA_TSTRING || lua_type(L, -1) == LUA_TNUMBER)) {
+                const char *k = lua_tostring(L, -2), *v = lua_tostring(L, -1);
+                if (strpbrk(k, "\r\n:") || strpbrk(v, "\r\n")) return luaL_error(L, "http: bad header %s", k);
+                if (!strcasecmp(k, "content-type")) has_type = true;
+                luaL_addstring(&hb, k);
+                luaL_addstring(&hb, ": ");
+                luaL_addstring(&hb, v);
+                luaL_addchar(&hb, '\n');
+            }
+            lua_pop(L, 1);
+        }
+    }
+    const char *body = NULL;
+    size_t body_len = 0;
+    char *json = NULL;
+    if (body_idx && lua_istable(L, body_idx)) {
+        cJSON *j = luapp_to_cjson(L, body_idx, 0);
+        json = j ? cJSON_PrintUnformatted(j) : NULL;
+        cJSON_Delete(j);
+        if (!json) return luaL_error(L, "http: couldn't encode the body");
+        body = json;
+        body_len = strlen(json);
+        if (!has_type) luaL_addstring(&hb, "Content-Type: application/json\n");
+    } else if (body_idx && !lua_isnoneornil(L, body_idx)) {
+        body = luaL_checklstring(L, body_idx, &body_len);
+    }
+    luaL_pushresult(&hb);
+    size_t hlen;
+    const char *hs = lua_tolstring(L, -1, &hlen);
+    const char *err = body_len > HTTP_SEND_MAX ? "http: body over 16 KB" : hlen > HTTP_HEADERS_MAX ? "http: headers over 1 KB" : NULL;
+    char *h_copy = NULL, *b_copy = NULL;
+    if (!err && hlen) {
+        h_copy = heap_caps_malloc(hlen + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (h_copy) memcpy(h_copy, hs, hlen + 1);
+        else err = "http: out of memory";
+    }
+    if (!err && body_len) {
+        b_copy = heap_caps_malloc(body_len + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (b_copy) {
+            memcpy(b_copy, body, body_len);
+            b_copy[body_len] = 0;
+        } else {
+            err = "http: out of memory";
+        }
+    }
+    free(json);
+    lua_pop(L, 1);
+    if (err) {
+        free(h_copy);
+        free(b_copy);
+        return luaL_error(L, "%s", err);
+    }
     vhttp_t *h = &V.http[V.http_n++];
     strlcpy(h->url, url, sizeof(h->url));
+    strlcpy(h->method, method, sizeof(h->method));
+    h->headers = h_copy;
+    h->body = b_copy;
+    h->body_len = body_len;
     h->id = ++V.http_seq;
-    lua_pushvalue(L, 2);
+    lua_pushvalue(L, fn_idx);
     h->ref = luaL_ref(L, LUA_REGISTRYINDEX);
     http_kick();
     return 0;
 }
 
+static int l_http_get(lua_State *L)
+{
+    return http_add(L, luaL_checkstring(L, 1), "GET", lua_istable(L, 3) ? 3 : 0, 0, 2);
+}
+
+static int l_http_post(lua_State *L)
+{
+    return http_add(L, luaL_checkstring(L, 1), "POST", lua_istable(L, 4) ? 4 : 0, 2, 3);
+}
+
+static int l_http_request(lua_State *L)
+{
+    luaL_checktype(L, 1, LUA_TTABLE);
+    lua_getfield(L, 1, "url");
+    const char *url = luaL_optstring(L, -1, NULL);
+    if (!url) return luaL_error(L, "http.request: url is required");
+    lua_getfield(L, 1, "method");
+    char method[8];
+    strlcpy(method, luaL_optstring(L, -1, "GET"), sizeof(method));
+    for (char *c = method; *c; c++) *c = (char)toupper((unsigned char)*c);
+    static const char *const OK[] = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"};
+    bool valid = false;
+    for (int i = 0; i < 6; i++) valid |= !strcmp(method, OK[i]);
+    if (!valid) return luaL_error(L, "http.request: method GET, POST, PUT, PATCH, DELETE or HEAD");
+    lua_getfield(L, 1, "headers");
+    lua_getfield(L, 1, "body");
+    int top = lua_gettop(L);
+    return http_add(L, url, method, top - 1, top, 2);
+}
+
 /* On the apps' fetch task. */
 static void http_job(uint32_t id)
 {
-    char url[URL_MAX + 1];
+    char url[URL_MAX + 1], method[8];
+    char *headers, *body;
+    size_t body_len;
     uint32_t gen;
     taskENTER_CRITICAL(&s_log_mux);
     strlcpy(url, s_http_url, sizeof(url));
+    strlcpy(method, s_http_method, sizeof(method));
+    headers = s_http_headers;
+    body = s_http_body;
+    body_len = s_http_body_len;
+    s_http_headers = s_http_body = NULL;
     gen = s_http_gen;
     taskEXIT_CRITICAL(&s_log_mux);
-    if (gen != atomic_load(&s_live_gen)) return;   /* its app was unloaded: don't fetch for nobody */
+    if (gen != atomic_load(&s_live_gen)) {   /* its app was unloaded: don't fetch for nobody */
+        free(headers);
+        free(body);
+        return;
+    }
     msg_t *m = heap_caps_calloc(1, sizeof(*m), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!m) return;
+    if (!m) {
+        free(headers);
+        free(body);
+        return;
+    }
     m->type = M_HTTP;
     m->http_id = id;
     m->gen = gen;
     if (!muse_wifi_connected() || muse_voice_in_call()) {
         m->status = -2;   /* not now */
     } else {
-        const char *body;
+        const char *resp;
         size_t len;
-        m->status = apps_net_get(url, &body, &len);
-        if (m->status > 0 && body) {
+        m->status = apps_net_request(method, url, headers, body, body_len, &resp, &len);
+        if (m->status > 0 && resp) {
             if (len > HTTP_BODY_MAX) {
                 m->status = -3;
             } else {
                 m->data = heap_caps_malloc(len + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
                 if (m->data) {
-                    memcpy(m->data, body, len + 1);
+                    memcpy(m->data, resp, len + 1);
                     m->len = len;
                 }
             }
         }
     }
+    free(headers);
+    free(body);
     if (xQueueSend(s_queue, &m, pdMS_TO_TICKS(1000)) != pdTRUE) {
         free(m->data);
         free(m);
@@ -1126,7 +1682,8 @@ static int l_print(lua_State *L)
 static void open_api(lua_State *L)
 {
     luaL_newmetatable(L, WIDGET_MT);
-    static const luaL_Reg wm[] = {{"set", w_set}, {"hide", w_hide}, {"show", w_show}, {"delete", w_delete}, {NULL, NULL}};
+    static const luaL_Reg wm[] = {{"set", w_set}, {"hide", w_hide}, {"show", w_show}, {"delete", w_delete},
+                                  {"stop", w_stop}, {NULL, NULL}};
     luaL_newlib(L, wm);
     luapp_gfx_open(L);   /* the canvas methods join these; gfx.* */
     lua_setfield(L, -2, "__index");
@@ -1137,13 +1694,17 @@ static void open_api(lua_State *L)
                                   {"bar", l_bar}, {"line", l_line}, {"image", l_image}, {"canvas", l_canvas},
                                   {"clear", l_clear}, {"background", l_background},
                                   {"on_tap", l_on_tap}, {"every", l_every}, {"after", l_after}, {"cancel", l_cancel},
+                                  {"roller", l_roller}, {"slider", l_slider}, {"switch", l_switch}, {"list", l_list},
+                                  {"scroll", l_scroll}, {"animate", l_animate}, {"on_swipe", l_on_swipe},
                                   {NULL, NULL}};
     luaL_newlib(L, ui);
+    luapp_dev_ui_fields(L);
     lua_setglobal(L, "ui");
     static const luaL_Reg tm[] = {{"now", l_now}, {"synced", l_synced}, {"date", l_date}, {"utc", l_utc}, {NULL, NULL}};
     luaL_newlib(L, tm);
     lua_setglobal(L, "time");
-    static const luaL_Reg http[] = {{"get", l_http_get}, {NULL, NULL}};
+    static const luaL_Reg http[] = {{"get", l_http_get}, {"post", l_http_post}, {"request", l_http_request},
+                                    {NULL, NULL}};
     luaL_newlib(L, http);
     lua_setglobal(L, "http");
     static const luaL_Reg st[] = {{"get", l_store_get}, {"set", l_store_set}, {NULL, NULL}};
@@ -1151,6 +1712,7 @@ static void open_api(lua_State *L)
     lua_setglobal(L, "store");
     static const luaL_Reg app[] = {{"exit", l_exit}, {"icon", l_app_icon}, {NULL, NULL}};
     luaL_newlib(L, app);
+    luapp_dev_app_fields(L);
     lua_pushstring(L, V.id);
     lua_setfield(L, -2, "id");
     lua_pushstring(L, V.name);
@@ -1158,6 +1720,7 @@ static void open_api(lua_State *L)
     lua_setglobal(L, "app");
     lua_pushcfunction(L, l_print);
     lua_setglobal(L, "print");
+    luapp_dev_open(L);   /* device, mic, motion, fs, apps, muse */
 }
 
 /* ---- running ---- */
@@ -1246,12 +1809,17 @@ static void stop_app(const char *error, const char *why)
     size_t lua_bytes = V.mem, gfx_bytes = luapp_gfx_bytes();
     size_t psram_before = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
     luapp_sound_enable(false);
+    luapp_dev_stop();
+    luapp_perf_stop();   /* its overlay goes with the screen, below */
     if (V.L) {
         kv_flush();
         lua_close(V.L);   /* frees every ref with it */
         V.L = NULL;
     }
-    for (int i = 0; i < V.http_n; i++) V.http[i].ref = LUA_NOREF;
+    for (int i = 0; i < V.http_n; i++) {
+        V.http[i].ref = LUA_NOREF;
+        http_free(&V.http[i]);
+    }
     memset(V.t, 0, sizeof(V.t));
     V.http_n = 0;
     V.http_busy = false;   /* an answer in flight is dropped by its gen */
@@ -1326,7 +1894,7 @@ static void away_check(void)
 /* Returns NULL when it's running, else why not (static or V-owned text). */
 static const char *run_app(const char *id)
 {
-    static char err[ERR_MAX + 1];
+    EXT_RAM_BSS_ATTR static char err[ERR_MAX + 1];
     stop_app(NULL, "another app started");
     atomic_store(&s_stop_req, STOP_NONE);
     luapp_meta_t meta;
@@ -1347,6 +1915,8 @@ static const char *run_app(const char *id)
     lua_State *L = V.L;
     lua_sethook(L, hook, LUA_MASKCOUNT, 2000);
     V.bg_ref = LUA_NOREF;
+    V.swipe_ref = LUA_NOREF;
+    for (int i = 0; i < MAX_W; i++) atomic_store(&s_chg_pending[i], false);
     open_api(L);
     /* The app's store, from its .kv file. */
     size_t kvn;
@@ -1387,9 +1957,83 @@ static const char *run_app(const char *id)
     return NULL;
 }
 
+/* ---- for luapp_dev.c ---- */
+
+const char *luapp_vm_app_id(void) { return V.L ? V.id : ""; }
+void luapp_vm_app_name(char *out, size_t n) { strlcpy(out, V.name, n); }
+void luapp_vm_forgive(int64_t us) { V.deadline += us; }
+void luapp_vm_wake(void)
+{
+    if (s_task) xTaskNotifyGive(s_task);
+}
+bool luapp_vm_call(int nargs) { return V.L && call(nargs, CALL_MS); }
+bool luapp_vm_call_results(int nargs, int nres) { return V.L && call_n(nargs, nres, CALL_MS); }
+void luapp_vm_after_call(void)
+{
+    if (V.L) after_call();
+}
+
+/* An alarm is due: wake the screen, bring up the Apps tile, open the app
+ * (unless it's the one running) and call its app.on_alarm(tag). */
+void luapp_vm_fire_alarm(const char *id, const char *tag)
+{
+    muse_state_set_asleep(false);
+    muse_state_poke();
+    muse_apps_request_show(MUSE_APP_LUAPPS);
+    if (!V.L || strcmp(V.id, id)) {
+        const char *err = run_app(id);
+        if (err) {
+            ESP_LOGW(TAG, "alarm %s: %s didn't start: %s", tag, id, err);
+            return;
+        }
+    }
+    luapp_dev_call_alarm(tag);
+}
+
 /* ---- messages ---- */
 
 static cJSON *ok_payload(cJSON *p) { return apps_ok(p); }
+
+static const char *const KIND_NAME[] = {"label", "box", "button", "arc", "bar", "line", "image", "canvas",
+                                        "roller", "slider", "switch", "list", "scroll"};
+
+/* luapp.admin widgets: what the running app has on screen. */
+static cJSON *widgets_json(void)
+{
+    cJSON *p = cJSON_CreateObject();
+    cJSON_AddStringToObject(p, "app", V.L ? V.id : "");
+    cJSON *arr = cJSON_AddArrayToObject(p, "widgets");
+    if (!V.L || !lock()) return p;
+    for (int i = 0; i < MAX_W; i++) {
+        widget_t *w = &V.w[i];
+        if (!w->used || !w->obj) continue;
+        cJSON *o = cJSON_CreateObject();
+        cJSON_AddNumberToObject(o, "i", i);
+        cJSON_AddStringToObject(o, "kind", w->kind < sizeof(KIND_NAME) / sizeof(KIND_NAME[0]) ? KIND_NAME[w->kind] : "?");
+        lv_area_t a;
+        lv_obj_get_coords(w->obj, &a);
+        cJSON_AddNumberToObject(o, "x", a.x1);
+        cJSON_AddNumberToObject(o, "y", a.y1);
+        cJSON_AddNumberToObject(o, "w", lv_area_get_width(&a));
+        cJSON_AddNumberToObject(o, "h", lv_area_get_height(&a));
+        if (lv_obj_has_flag(w->obj, LV_OBJ_FLAG_HIDDEN)) cJSON_AddBoolToObject(o, "hidden", true);
+        if (w->parent >= 0) cJSON_AddNumberToObject(o, "parent", w->parent);
+        lv_obj_t *lbl = w->kind == W_LABEL ? w->obj : w->lbl;
+        if (lbl) cJSON_AddStringToObject(o, "text", lv_label_get_text(lbl));
+        switch (w->kind) {
+        case W_ARC: cJSON_AddNumberToObject(o, "value", lv_arc_get_value(w->obj)); break;
+        case W_BAR: cJSON_AddNumberToObject(o, "value", lv_bar_get_value(w->obj)); break;
+        case W_SLIDER: cJSON_AddNumberToObject(o, "value", lv_slider_get_value(w->obj)); break;
+        case W_SWITCH: cJSON_AddBoolToObject(o, "on", lv_obj_has_state(w->obj, LV_STATE_CHECKED)); break;
+        case W_ROLLER: cJSON_AddNumberToObject(o, "selected", lv_roller_get_selected(w->obj) + 1); break;
+        default: break;
+        }
+        if (w->tap_ref != LUA_NOREF) cJSON_AddBoolToObject(o, "on_tap", true);
+        cJSON_AddItemToArray(arr, o);
+    }
+    unlock();
+    return p;
+}
 
 static void handle_install(msg_t *m)
 {
@@ -1478,6 +2122,7 @@ static void handle(msg_t *m)
     case M_REMOVE: {
         if (!strcmp(V.id, m->id) && V.L) stop_app(NULL, "removed");
         bool existed = luapp_store_remove(m->id);
+        luapp_dev_alarms_forget(m->id);
         if (lock()) {
             luapp_ui_set_icon(m->id, NULL);
             if (!V.L) luapp_ui_show_launcher();
@@ -1516,6 +2161,12 @@ static void handle(msg_t *m)
         }
         if (m->widget == -2) {   /* long-press: leave the app */
             stop_app(NULL, "long-press");
+        } else if (m->widget == -3 || m->widget == -4) {   /* a swipe up or down */
+            if (V.swipe_ref != LUA_NOREF) {
+                lua_rawgeti(V.L, LUA_REGISTRYINDEX, V.swipe_ref);
+                lua_pushstring(V.L, m->widget == -3 ? "up" : "down");
+                call(1, CALL_MS);
+            }
         } else if (m->widget == -1) {
             if (V.bg_ref != LUA_NOREF) {
                 lua_rawgeti(V.L, LUA_REGISTRYINDEX, V.bg_ref);
@@ -1534,6 +2185,30 @@ static void handle(msg_t *m)
             }
         }
         break;
+    case M_CHANGE: {
+        if (m->widget < 0 || m->widget >= MAX_W) break;
+        atomic_store(&s_chg_pending[m->widget], false);   /* first: a later change posts again */
+        if (!V.L || m->gen != (V.gen & 0xffffff)) break;
+        widget_t *w = &V.w[m->widget];
+        if (!w->used || w->change_ref == LUA_NOREF) break;
+        int v = atomic_load(&s_chg_val[m->widget]);
+        lua_rawgeti(V.L, LUA_REGISTRYINDEX, w->change_ref);
+        if (w->kind == W_SWITCH) lua_pushboolean(V.L, v);
+        else lua_pushinteger(V.L, v);
+        call(1, CALL_MS);
+        break;
+    }
+    case M_ANIM: {
+        if (!V.L || m->gen != (V.gen & 0xffffff) || m->widget < 0 || m->widget >= MAX_W) break;
+        widget_t *w = &V.w[m->widget];
+        if (!w->used || w->anim_ref == LUA_NOREF) break;
+        int ref = w->anim_ref;
+        w->anim_ref = LUA_NOREF;   /* once per animate */
+        lua_rawgeti(V.L, LUA_REGISTRYINDEX, ref);
+        luaL_unref(V.L, LUA_REGISTRYINDEX, ref);
+        call(0, CALL_MS);
+        break;
+    }
     case M_TOUCH: {
         if (m->touch == 1) {   /* the latest point of the drag */
             atomic_store(&s_mv_queued, false);
@@ -1551,9 +2226,38 @@ static void handle(msg_t *m)
         call(3, CALL_MS);
         break;
     }
+    case M_SEND: {
+        cJSON *data = m->data ? cJSON_Parse(m->data) : NULL;
+        const char *err;
+        if (m->id[0] && (!V.L || strcmp(m->id, V.id))) {
+            cJSON_Delete(data);
+            reply(m, apps_error("not_running", "that app isn't running"));
+            break;
+        }
+        cJSON *r = luapp_dev_message(data, &err);
+        cJSON_Delete(data);
+        if (err) {
+            reply(m, apps_error(V.L ? "no_handler" : "not_running", err));
+        } else {
+            cJSON *p = cJSON_CreateObject();
+            cJSON_AddItemToObject(p, "reply", r);
+            reply(m, ok_payload(p));
+        }
+        break;
+    }
+    case M_SHOT: {
+        const char *err;
+        cJSON *p = luapp_shot(m->x, m->offset, &err);
+        reply(m, p ? ok_payload(p) : apps_error("unavailable", err));
+        break;
+    }
+    case M_WIDGETS:
+        reply(m, ok_payload(widgets_json()));
+        break;
     case M_HTTP: {
         if (!V.L || m->gen != V.gen || V.http_n == 0 || V.http[0].id != m->http_id) break;
         vhttp_t h = V.http[0];
+        http_free(&h);
         memmove(&V.http[0], &V.http[1], sizeof(V.http[0]) * (size_t)(--V.http_n));
         V.http_busy = false;
         lua_State *L = V.L;
@@ -1632,6 +2336,10 @@ static void task(void *arg)
     (void)arg;
     luapp_store_mount();
     load_icons();
+    if (lock()) {
+        luapp_perf_hook();
+        unlock();
+    }
     for (;;) {
         /* 1. A long-press or Muse's stop: unload before anything else. */
         int req = atomic_exchange(&s_stop_req, STOP_NONE);
@@ -1645,8 +2353,12 @@ static void task(void *arg)
             free(m->data);
             free(m);
         }
-        /* 3. Off the Apps screen for 30 s: unload. */
+        /* 3. Off the Apps screen for 30 s: unload. Then what the board's hooks
+         *    flagged (muse.ask's answer, the button, alarms) and keep-awake. */
         away_check();
+        int64_t dev_next = luapp_dev_tick();
+        luapp_shot_expire();
+        luapp_perf_tick();
         /* 4. Timers, paced: never back to back. After a round that took T, wait
          *    at least max(5 ms, T/3), so the screen, Muse's link and voice keep
          *    a quarter of the time, and a late frame is skipped, not caught up. */
@@ -1659,6 +2371,7 @@ static void task(void *arg)
             next = V.timers_ok_at;
         }
         if (next < V.timers_ok_at) next = V.timers_ok_at;
+        if (dev_next < next) next = dev_next;
         int64_t wait_us = next == INT64_MAX ? 1000000 : next - now_us();
         if (wait_us < 0) wait_us = 0;
         if (wait_us > 1000000) wait_us = 1000000;   /* re-check visibility each second */
@@ -1742,7 +2455,9 @@ void luapp_set_reply(muse_apps_reply_fn fn) { s_reply = fn; }
 
 /* ---- commands (Noise session task) ---- */
 
-extern const char luapp_api_md[], luapp_api_gfx_md[], luapp_api_sound_md[];
+extern const char luapp_api_md[], luapp_api_gfx_md[], luapp_api_sound_md[], luapp_api_ui_md[], luapp_api_device_md[];
+
+#define ACTIONS "api, api_ui, api_gfx, api_sound, api_device, list, logs, stop, remove, source, screenshot, widgets or perf"
 
 static const char *str_param(const cJSON *p, const char *k)
 {
@@ -1857,12 +2572,35 @@ cJSON *luapp_command(const char *command, const cJSON *params, const char *reque
         }
         return async_or_busy(m);
     }
+    if (!strcmp(command, "luapp.send")) {
+        /* To the running app's app.on_message(data); its return value comes back. */
+        if (!can_reply) return apps_error("unavailable", "no reply channel");
+        if (id && !luapp_id_valid(id)) return apps_error("invalid_params", "id: an app id");
+        /* data: JSON text (parsed), plain text, or any JSON value. */
+        const cJSON *data = params ? cJSON_GetObjectItemCaseSensitive(params, "data") : NULL;
+        cJSON *parsed = cJSON_IsString(data) && data->valuestring ? cJSON_Parse(data->valuestring) : NULL;
+        char *json = parsed ? cJSON_PrintUnformatted(parsed) : data ? cJSON_PrintUnformatted(data) : NULL;
+        cJSON_Delete(parsed);
+        if (json && strlen(json) > 8192) {
+            cJSON_free(json);
+            return apps_error("too_large", "data is limited to 8 KB of JSON");
+        }
+        msg_t *m = req_msg(M_SEND, id, request_id, sgen);
+        if (m && json) {
+            size_t n = strlen(json);
+            m->data = heap_caps_malloc(n + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            if (m->data) memcpy(m->data, json, n + 1);
+        }
+        cJSON_free(json);
+        return async_or_busy(m);
+    }
     if (!strcmp(command, "luapp.admin")) {
         const char *action = str_param(params, "action");
-        if (!action) return apps_error("invalid_params", "action: api, api_gfx, api_sound, list, logs, stop, remove or source");
-        /* The reference in three parts, each well inside one reply. */
+        if (!action) return apps_error("invalid_params", "action: " ACTIONS);
+        /* The reference in parts, each well inside one reply. */
         const char *doc = !strcmp(action, "api") ? luapp_api_md : !strcmp(action, "api_gfx") ? luapp_api_gfx_md
-                        : !strcmp(action, "api_sound") ? luapp_api_sound_md : NULL;
+                        : !strcmp(action, "api_sound") ? luapp_api_sound_md : !strcmp(action, "api_ui") ? luapp_api_ui_md
+                        : !strcmp(action, "api_device") ? luapp_api_device_md : NULL;
         if (doc) {
             cJSON *p = cJSON_CreateObject();
             cJSON_AddStringToObject(p, "api", doc);
@@ -1966,7 +2704,31 @@ cJSON *luapp_command(const char *command, const cJSON *params, const char *reque
             if (m && cJSON_IsNumber(off) && off->valuedouble > 0) m->offset = (size_t)off->valuedouble;
             return async_or_busy(m);
         }
-        return apps_error("invalid_params", "action: api, api_gfx, api_sound, list, logs, stop, remove or source");
+        if (!strcmp(action, "screenshot")) {
+            /* The screen as a PNG, 12 KB (16 KB of base64) per reply: offset 0
+             * takes it, then offset = next until next is null. */
+            if (!can_reply) return apps_error("unavailable", "no reply channel");
+            msg_t *m = req_msg(M_SHOT, NULL, request_id, sgen);
+            const cJSON *off = cJSON_GetObjectItemCaseSensitive(params, "offset");
+            if (m && cJSON_IsNumber(off) && off->valuedouble > 0) m->offset = (size_t)off->valuedouble;
+            if (m) m->x = bool_param(params, "full", false) ? 1 : 2;
+            return async_or_busy(m);
+        }
+        if (!strcmp(action, "widgets")) {
+            if (!can_reply) return apps_error("unavailable", "no reply channel");
+            return async_or_busy(req_msg(M_WIDGETS, NULL, request_id, sgen));
+        }
+        if (!strcmp(action, "perf")) {
+            /* The last second: screen fps, ms and KB per frame; the app's Lua and drawing. */
+            cJSON *p = luapp_perf_json();
+            char id[LUAPP_ID_MAX + 1];
+            taskENTER_CRITICAL(&s_log_mux);
+            strlcpy(id, s_running, sizeof(id));
+            taskEXIT_CRITICAL(&s_log_mux);
+            if (id[0]) cJSON_AddStringToObject(p, "app", id);
+            return apps_ok(p);
+        }
+        return apps_error("invalid_params", "action: " ACTIONS);
     }
     return apps_error("unsupported", "unknown luapp command");
 }

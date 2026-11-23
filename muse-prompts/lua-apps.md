@@ -1,7 +1,7 @@
 My gadget (the round 466x466 screen) can now run Lua apps that you write, with no firmware update. Whenever I ask you to build an app for my gadget, follow these steps:
 
 1. Read the API first.
-Call luapp.admin with action "api". It returns the Lua API reference: screen widgets, timers, time, http, json, store and app. For anything with images, pixel art, animation or games, also read action "api_gfx" (gfx.image for PNG/JPEG, gfx.sprite for pixel art, ui.image, and ui.canvas for drawing frames with touch input). For sound, read action "api_sound" (sound.effect, sound.tone, sound.play for melodies). Every app needs a launcher icon: see "Launcher icon" in api_gfx. Use only what they describe. There is no io, os, require or load. Fonts are ASCII only, so no emoji.
+Call luapp.admin with action "api". It returns the Lua API reference: screen widgets, timers, time, http, json, store and app. For anything with images, pixel art, animation or games, also read action "api_gfx" (gfx.image for PNG/JPEG, gfx.sprite for pixel art, ui.image, and ui.canvas for drawing frames with touch input). For sound, read action "api_sound" (sound.effect, sound.tone, sound.play for melodies). For richer widgets and motion, read action "api_ui" (ui.roller, ui.slider, ui.switch, ui.list, ui.scroll, ui.animate, ui.on_swipe, ui.on_button). For the rest of the gadget, read action "api_device" (muse.ask, battery and Wi-Fi, the microphone level, the motion sensor, alarms, the app's own files, HTTP POST, the built-in apps' data, screenshots). Every app needs a launcher icon: see "Launcher icon" in api_gfx. Use only what they describe. There is no io, os, require or load. Fonts are ASCII only, so no emoji.
 
 2. Install with luapp.install:
 - id: short and permanent, 1-12 characters of a-z, 0-9 and _ (for example "pomodoro"). Reusing an id updates that app.
@@ -35,7 +35,7 @@ Other commands:
 
 Icons: give every app its own icon by calling app.icon at start-up, so the launcher looks polished instead of showing initials. Best is a 96x96 ui.canvas with one bold, simple shape in 2-3 colours (no small text), passed to app.icon and then deleted. A pixel-art gfx.sprite (12, 18, 24 or 36 px square, transparent background) also works and sits on the app's colour. So do a PNG or JPEG photo, which fills the circle. When you update an older app, add an icon to it too.
 
-Games: draw each frame on a ui.canvas from ui.every(33, ...), take input with on_touch, and use sound.effect for feedback. Write original games, tunes and art.
+Games: draw each frame on a ui.canvas from ui.every(16 to 33, ...), take input with on_touch, and use sound.effect for feedback. When small things move over a still scene, use c:partial(true) (see api_gfx) so each frame sends the screen only what changed, and check the speed with luapp.admin action "perf". Write original games, tunes and art.
 
 Design rules:
 - One idea per screen, big text, 2-3 colours.

@@ -4,7 +4,8 @@
  * Lua apps on the "luapps" FAT partition (mounted at /luapps, formatted on
  * first use): <id>.lua (source), <id>.meta (name, colour), <id>.kv (the
  * app's store, JSON), <id>.ico (its launcher icon, see luapp_image.h),
- * <id>.tmp (an install in progress). An index of the
+ * <id>.tmp (an install in progress), <id>.fs/ (the app's own files, fs.*),
+ * _alarms (every app's alarms). An index of the
  * installed apps is kept in RAM for the launcher and luapp.admin list.
  * File operations may come from any task (a lock takes them one at a time);
  * the index can be read anywhere.
@@ -53,3 +54,26 @@ bool luapp_store_kv_write(const char *id, const char *json, size_t len);
 bool luapp_store_icon_read(const char *id, uint8_t *buf, size_t n);
 bool luapp_store_icon_write(const char *id, const uint8_t *buf, size_t n);
 void luapp_store_icon_remove(const char *id);
+
+/* An app's own files (fs.*), in <id>.fs/: names of a-z 0-9 _ - . (not
+ * starting with a dot), up to 24; 32 files and 256 KB per app, 128 KB per
+ * file; 64 KB of the partition always left free. Removing the app removes
+ * them. Writing returns NULL, or why it couldn't (static text). */
+#define LUAPP_FILE_NAME_MAX 24
+#define LUAPP_FILE_MAX (128 * 1024)
+#define LUAPP_FILES_MAX 32
+#define LUAPP_FILES_QUOTA (256 * 1024)
+#define LUAPP_FILES_SPARE (64 * 1024)
+typedef struct {
+    char name[LUAPP_FILE_NAME_MAX + 1];
+    uint32_t size;
+} luapp_file_t;
+bool luapp_file_name_valid(const char *name);
+const char *luapp_store_file_write(const char *id, const char *name, const char *data, size_t len, bool append);
+char *luapp_store_file_read(const char *id, const char *name, size_t *len);
+bool luapp_store_file_remove(const char *id, const char *name);
+/* Fills up to cap entries; returns how many files there are, *total their bytes. */
+int luapp_store_file_list(const char *id, luapp_file_t *out, int cap, size_t *total);
+/* The host's own files at the top of the partition (no app id). */
+char *luapp_store_sys_read(const char *name, size_t max, size_t *len);
+bool luapp_store_sys_write(const char *name, const char *data, size_t len);

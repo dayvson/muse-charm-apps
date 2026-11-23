@@ -19,3 +19,8 @@ bool apps_net_submit(apps_job_fn fn, uint32_t arg);
  * Returns the HTTP status, 0 if it failed, or -1 if skipped because internal
  * RAM is too low to open a connection without crowding Muse's sessions. */
 int apps_net_get(const char *url, const char **body, size_t *len);
+
+/* Any method (GET, POST, PUT, PATCH, DELETE, HEAD), with extra headers
+ * ("Name: value" lines separated by \n, or NULL) and a body (or NULL). */
+int apps_net_request(const char *method, const char *url, const char *headers, const char *data, size_t data_len,
+                     const char **body, size_t *len);

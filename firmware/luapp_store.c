@@ -1,4 +1,5 @@
 #include "luapp_store.h"
+#include "esp_attr.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -7,6 +8,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -20,7 +22,7 @@ static const char *TAG = "luapp_store";
 #define LABEL "luapps"
 
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
-static luapp_meta_t s_index[LUAPP_MAX_APPS];   /* under s_mux */
+EXT_RAM_BSS_ATTR static luapp_meta_t s_index[LUAPP_MAX_APPS];   /* under s_mux */
 static int s_count;
 static uint32_t s_version;
 static bool s_mounted;
@@ -246,6 +248,125 @@ static char *fs_code(const char *id, size_t *len)
     return read_file(p, LUAPP_CODE_MAX, len);
 }
 
+/* ---- an app's own files (fs.*): /luapps/<id>.fs/<name> ---- */
+
+static void dir_path(char *out, size_t len, const char *id) { snprintf(out, len, ROOT "/%s.fs", id); }
+
+bool luapp_file_name_valid(const char *name)
+{
+    size_t n = name ? strlen(name) : 0;
+    if (n == 0 || n > LUAPP_FILE_NAME_MAX || name[0] == '.') return false;
+    for (size_t i = 0; i < n; i++) {
+        char c = name[i];
+        if (!(islower((unsigned char)c) || isdigit((unsigned char)c) || c == '_' || c == '-' || c == '.')) return false;
+    }
+    return true;
+}
+
+static void file_path(char *out, size_t len, const char *id, const char *name)
+{
+    snprintf(out, len, ROOT "/%s.fs/%s", id, name);
+}
+
+static int files_scan(const char *id, luapp_file_t *out, int cap, size_t *total)
+{
+    char d[48], p[320];
+    dir_path(d, sizeof(d), id);
+    *total = 0;
+    int n = 0;
+    DIR *dir = opendir(d);
+    if (!dir) return 0;
+    struct dirent *e;
+    while ((e = readdir(dir))) {
+        if (e->d_name[0] == '.') continue;
+        char name[LUAPP_FILE_NAME_MAX + 8];
+        strlcpy(name, e->d_name, sizeof(name));
+        for (char *c = name; *c; c++) *c = (char)tolower((unsigned char)*c);
+        snprintf(p, sizeof(p), "%s/%s", d, e->d_name);
+        struct stat st;
+        if (stat(p, &st) != 0) continue;
+        *total += (size_t)st.st_size;
+        if (out && n < cap) {
+            strlcpy(out[n].name, name, sizeof(out[n].name));
+            out[n].size = (uint32_t)st.st_size;
+        }
+        n++;
+    }
+    closedir(dir);
+    return n;
+}
+
+static void files_clear(const char *id)
+{
+    char d[48], p[320];
+    dir_path(d, sizeof(d), id);
+    DIR *dir = opendir(d);
+    if (!dir) return;
+    struct dirent *e;
+    while ((e = readdir(dir))) {
+        if (e->d_name[0] == '.') continue;
+        snprintf(p, sizeof(p), "%s/%s", d, e->d_name);
+        remove(p);
+    }
+    closedir(dir);
+    rmdir(d);
+}
+
+static const char *fs_file_write(const char *id, const char *name, const char *data, size_t len, bool append)
+{
+    if (!s_mounted) return "storage isn't mounted";
+    char d[48], p[320];
+    dir_path(d, sizeof(d), id);
+    file_path(p, sizeof(p), id, name);
+    size_t used = 0;
+    int count = files_scan(id, NULL, 0, &used);
+    struct stat st;
+    bool exists = stat(p, &st) == 0;
+    size_t old = exists ? (size_t)st.st_size : 0;
+    size_t after = append ? old + len : len;
+    if (after > LUAPP_FILE_MAX) return "a file can hold up to 128 KB";
+    if (!exists && count >= LUAPP_FILES_MAX) return "32 files per app: remove some first";
+    if (used - old + after > LUAPP_FILES_QUOTA) return "over the app's 256 KB of files: remove some first";
+    uint64_t total = 0, free_b = 0;
+    if (esp_vfs_fat_info(ROOT, &total, &free_b) == ESP_OK && free_b < (uint64_t)len + LUAPP_FILES_SPARE) {
+        return "the board's app storage is nearly full";
+    }
+    mkdir(d, 0775);
+    if (!write_file(p, data, len, append ? "ab" : "wb")) return "couldn't write the file";
+    return NULL;
+}
+
+static char *fs_file_read(const char *id, const char *name, size_t *len)
+{
+    char p[80];
+    file_path(p, sizeof(p), id, name);
+    return read_file(p, LUAPP_FILE_MAX, len);
+}
+
+static bool fs_file_remove(const char *id, const char *name)
+{
+    char p[80];
+    file_path(p, sizeof(p), id, name);
+    return remove(p) == 0;
+}
+
+static char *fs_sys_read(const char *name, size_t max, size_t *len)
+{
+    char p[48];
+    snprintf(p, sizeof(p), ROOT "/%s", name);
+    return read_file(p, max, len);
+}
+
+static bool fs_sys_write(const char *name, const char *data, size_t len)
+{
+    char p[48], tmp[52];
+    snprintf(p, sizeof(p), ROOT "/%s", name);
+    snprintf(tmp, sizeof(tmp), "%s.new", p);
+    if (!write_file(tmp, data, len, "wb")) return false;
+    remove(p);
+    return rename(tmp, p) == 0;
+}
+
 static bool fs_remove(const char *id)
 {
     static const char *const exts[] = {"lua", "meta", "kv", "tmp", "ico"};
@@ -256,6 +377,7 @@ static bool fs_remove(const char *id)
         path(p, sizeof(p), id, exts[i]);
         remove(p);
     }
+    files_clear(id);
     rescan();
     return existed;
 }
@@ -347,3 +469,15 @@ void luapp_store_icon_remove(const char *id)
     fs_icon_remove(id);
     fs_unlock();
 }
+const char *luapp_store_file_write(const char *id, const char *name, const char *data, size_t len, bool append)
+{
+    LOCKED(const char *, fs_file_write(id, name, data, len, append));
+}
+char *luapp_store_file_read(const char *id, const char *name, size_t *len) { LOCKED(char *, fs_file_read(id, name, len)); }
+bool luapp_store_file_remove(const char *id, const char *name) { LOCKED(bool, fs_file_remove(id, name)); }
+int luapp_store_file_list(const char *id, luapp_file_t *out, int cap, size_t *total)
+{
+    LOCKED(int, files_scan(id, out, cap, total));
+}
+char *luapp_store_sys_read(const char *name, size_t max, size_t *len) { LOCKED(char *, fs_sys_read(name, max, len)); }
+bool luapp_store_sys_write(const char *name, const char *data, size_t len) { LOCKED(bool, fs_sys_write(name, data, len)); }

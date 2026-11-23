@@ -4,7 +4,10 @@ Lua 5.4 apps on a 466x466 round touch screen (an ESP32-S3 watch-sized gadget).
 Install with `luapp.install` (id, name, color, code); it compiles, saves and runs
 the app, and returns syntax or start-up errors with line numbers. Errors later
 are in `luapp.admin` action `logs`. Up to 9 apps, 64 KB of source each.
-Images, sprites and a canvas for games: action `api_gfx`. Sound: `api_sound`.
+More: `api_ui` (rollers, sliders, switches, lists, scrolling, animation,
+swipes, the button), `api_gfx` (images, sprites, canvas), `api_sound`,
+`api_device` (muse.ask, battery, motion, mic, alarms, files, HTTP POST,
+the built-in apps' data, screenshots).
 
 ## How an app runs
 
@@ -50,7 +53,7 @@ ui.image and ui.canvas are widgets too (see api_gfx).
     ui.clear()                     -- delete every widget
     ui.background(0x000000)
     ui.on_tap(function(x, y) end)  -- taps outside buttons, centre-relative
-    id = ui.every(ms, fn)          -- repeating timer (ms >= 50); up to 24 timers
+    id = ui.every(ms, fn)          -- repeating timer (ms >= 16; games 16-33); up to 24
     id = ui.after(ms, fn)          -- once
     ui.cancel(id)
 
@@ -66,7 +69,7 @@ ui.image and ui.canvas are widgets too (see api_gfx).
 
     http.get(url, function(ok, body, status) end)
 
-GET over https (or http). The body is a string up to 32 KB. Requests run one
+GET over https (or http); POST, headers and more in api_device. The body is a string up to 32 KB. Requests run one
 at a time (up to 4 queued) and wait while a voice call is on. ok is false with
 a reason in body when it fails. Use APIs without keys (Open-Meteo, for example).
 

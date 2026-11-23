@@ -44,22 +44,28 @@ your desk.
 ## What an app can use
 
 The full reference lives on the board: Muse reads it with `luapp.admin` and actions
-`api`, `api_gfx` and `api_sound`. The source files are
+`api`, `api_ui`, `api_gfx`, `api_sound` and `api_device`. The source files are
 [`luapp_api.md`](../firmware/luapp_api.md),
-[`luapp_api_gfx.md`](../firmware/luapp_api_gfx.md) and
-[`luapp_api_sound.md`](../firmware/luapp_api_sound.md), compiled into the firmware by
+[`luapp_api_ui.md`](../firmware/luapp_api_ui.md),
+[`luapp_api_gfx.md`](../firmware/luapp_api_gfx.md),
+[`luapp_api_sound.md`](../firmware/luapp_api_sound.md) and
+[`luapp_api_device.md`](../firmware/luapp_api_device.md), compiled into the firmware by
 [`tools/embed_text.py`](../firmware/tools/embed_text.py). After editing them, run
 `embed_text.py` (the command is in its header) and rebuild.
 
 | Module | What |
 |---|---|
-| `ui` | label, box, button, arc, bar, line, image, canvas (up to 96 widgets); taps; `ui.every` / `ui.after` timers (up to 24); background |
+| `ui` | label, box, button, arc, bar, line, image, canvas, roller, slider, switch, list, scroll (up to 96 widgets); taps; `ui.every` / `ui.after` timers (16 ms or more, up to 24); background; `ui.animate` (LVGL animations: position, opacity, size, value, angle, scale); `ui.on_swipe` (up/down); `ui.on_button` (the bottom button's short press) |
 | `time` | `now`, `date`, `utc`, `synced` |
-| `http`, `json` | `http.get(url, callback)`: HTTP(S) GET, bodies up to 32 KB, one request at a time, paused during voice calls; `json.decode` / `encode` |
+| `http`, `json` | `http.get`, `http.post`, `http.request` (any method, headers, a string or JSON body up to 16 KB): bodies back up to 32 KB, one request at a time, paused during voice calls; `json.decode` / `encode` |
 | `store` | per-app key/value storage that survives restarts |
-| `gfx` | PNG and JPEG images (decoded with the ESP32-S3 ROM's tinfl and TJpgDec), pixel-art sprites, a canvas with drawing ops and touch input, zoomed canvases (2-4x, crisp), `gfx.memory()` |
+| `gfx` | PNG and JPEG images (decoded with the ESP32-S3 ROM's tinfl and TJpgDec), pixel-art sprites, a canvas with drawing ops (polygons, gradients, whole tilemaps and sprite batches in one call) and touch input, zoomed canvases (2-4x, crisp), `c:partial(true)` (send the screen only what changed since the last clear), `gfx.memory()`, `gfx.stats()` / `gfx.show_stats()` (fps, ms and KB per frame, Lua and drawing time over the last second) |
 | `sound` | a 4-channel synth: effects, tones, and melodies in note strings (`"C4:8 E G C5:4"`), mixed into Muse's speaker when Muse isn't talking |
-| `app` | `id`, `name`, `icon(img)`, `exit()` |
+| `app` | `id`, `name`, `icon(img)`, `exit()`, `keep_awake`, `brightness`, `alarm` / `on_alarm` / `cancel_alarm` / `alarms` (wake the board and open the app at a time; kept in `/luapps/_alarms`), `on_message` (for `luapp.send`) |
+| `muse` | `muse.ask(text, fn)`: a typed turn to Muse, its text reply back to the app (a hook on the SDK's `@chat` console lines); `muse.status()` |
+| `device`, `mic`, `motion` | battery, charging, Wi-Fi, Muse, call, volume; microphone level (the settings meter's dBFS); accelerometer and gyroscope (QMI8658 on the shared I2C bus, probed at 0x6B/0x6A) |
+| `fs` | the app's own files in `/luapps/<id>.fs/` (256 KB per app, 128 KB per file), removed with the app |
+| `apps` | the built-in apps' data: `apps.stocks()`, `apps.wind()`, `apps.watch()` |
 
 The screen is round: coordinates start at the centre (+x right, +y down), and
 content should stay within about 200 px of it. Fonts are ASCII, plus the degree
@@ -71,7 +77,8 @@ sign and bullet.
 |---|---|
 | `luapp.install` | `id`, `code`, and optionally `name`, `color`, `run`. Installs or updates an app; code over 8000 characters goes in pieces (`done=false`, then `append=true`). Returns ok, or `syntax_error` / `runtime_error` with a line number, or `full`, `too_large`, `busy`. |
 | `luapp.run` | Opens an installed app; returns its start-up error, if any |
-| `luapp.admin` | `action`: `api`, `api_gfx`, `api_sound` (the reference), `list` (apps, the running one, storage, the last unload), `logs` (the app's `print` output and later errors), `stop` (answers once it's unloaded; `force=true` reboots the board if the app won't stop in 3 s), `remove`, `source` (read code back in 3000-character pieces, for editing) |
+| `luapp.send` | `data` (JSON text) to the running app's `app.on_message`; returns what the handler returns |
+| `luapp.admin` | `action`: `api`, `api_ui`, `api_gfx`, `api_sound`, `api_device` (the reference), `screenshot` (the screen as a PNG, drawn in strips and deflated by the ROM, in 12 KB base64 pages: `offset`, `full`), `widgets` (the running app's widgets as JSON), `perf` (the last second's speed, as `gfx.stats`), `list` (apps, the running one, storage, the last unload), `logs` (the app's `print` output and later errors), `stop` (answers once it's unloaded; `force=true` reboots the board if the app won't stop in 3 s), `remove`, `source` (read code back in 3000-character pieces, for editing) |
 | `app.show` | `app: "apps"` shows the launcher |
 
 ## Lifecycle
@@ -103,6 +110,14 @@ rules for the round screen. The device guide
 ([`config/device-guide.md`](../config/device-guide.md)) carries a short version, so
 Muse knows the launcher exists in every conversation.
 
+The other files in [`muse-prompts/`](../muse-prompts/) are one-off notes we sent our
+Muse when the firmware grew: [`rich-apps.md`](../muse-prompts/rich-apps.md) (the
+`api_ui` and `api_device` additions), [`speed.md`](../muse-prompts/speed.md) (the
+16 ms timer floor and `c:partial`) and
+[`partial-fix.md`](../muse-prompts/partial-fix.md) (the partial-frame fix). A Muse
+that starts from today's `lua-apps.md` doesn't need them; they're kept as examples
+of telling Muse about a firmware update.
+
 ## Installing the apps in this repository
 
 Each folder in [`apps/`](../apps/) has the app's Lua source and a README with its
@@ -112,15 +127,30 @@ point Muse at this repository) and ask:
 > Install this Lua app on my gadget with luapp.install: id `timer`, name "Timer",
 > colour 0x34C759. Send it in pieces if it's over 8000 characters.
 
-To save an app Muse wrote, ask Muse for it (it can read it back with `luapp.admin`
-`source`) and commit it under `apps/<id>/` with a README.
+Muse commits the apps it builds to this repository itself, with a README and a
+row in the app tables, when you've sent it
+[`muse-prompts/publish-apps.md`](../muse-prompts/publish-apps.md) once. It can also
+read any installed app's source back with `luapp.admin` `source`.
+
+## Screenshots and speed
+
+- **From a Mac:** [`scripts/07_screenshots.sh`](../scripts/07_screenshots.sh) opens
+  each installed app over USB, waits for it to draw (`--wait`, 8 s by default) and
+  saves round PNGs in `docs/images/apps/`, plus the launcher. It uses the serial
+  console's `apps COMMAND {json}` line (patch 0002) and LVGL's snapshot
+  (`CONFIG_LV_USE_SNAPSHOT`, on in this project's settings).
+- **For Muse:** `luapp.admin` `screenshot` returns the screen as a PNG, so Muse can
+  look at what its app really draws, and `widgets` lists the running app's widgets.
+- **Speed:** `luapp.admin` `perf`, `gfx.stats()` and `gfx.show_stats(true)` (an
+  on-screen overlay) give frames per second, milliseconds and KB sent per frame,
+  and the time in Lua and in drawing over the last second.
 
 ## Limits worth knowing
 
 - One app at a time. Opening another unloads the first.
 - `link.register` is capped at 8 KB including the SDK's own commands, so these
   commands' descriptions are short. The detail lives in `luapp.admin api`.
-- Each API reply is kept to about 4 KB, which is why it's split into three actions.
+- Each API reply is kept to about 4 KB, which is why it's split into five actions.
 - The flash app slot is about 90% full with Lua, the native apps and a custom avatar.
 - Internal RAM is tight during voice calls ([memory.md](memory.md)). Lua runs from
   PSRAM, but avoid HTTP fetches in a tight loop.

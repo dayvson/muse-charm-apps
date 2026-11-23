@@ -102,7 +102,7 @@ typedef struct {
 
 /* Shared with the fetch task and commands: under s_lock. */
 EXT_RAM_BSS_ATTR static wind_fc_t s_fc[SPOTS];
-static info_t s_info[SPOTS];
+EXT_RAM_BSS_ATTR static info_t s_info[SPOTS];
 static spot_t s_spots[SPOTS] = {
     {"Crandon Park", 25.7120, -80.1535},
     {"Stiltsville", 25.6529, -80.1754},

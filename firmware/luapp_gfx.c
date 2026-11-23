@@ -13,6 +13,8 @@
  */
 
 #include <math.h>
+#include "esp_attr.h"
+#include "esp_timer.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -269,20 +271,39 @@ static int l_memory(lua_State *L)
 
 /* ---- canvases ---- */
 
-enum { OP_CLEAR, OP_RECT, OP_CIRCLE, OP_LINE, OP_TRI, OP_ARC, OP_TEXT, OP_IMAGE };
+enum { OP_CLEAR, OP_RECT, OP_CIRCLE, OP_LINE, OP_TRI, OP_ARC, OP_TEXT, OP_IMAGE, OP_GRAD, OP_POLY, OP_TILES, OP_SPRITES };
+
+#define POLY_MAX 32       /* polygon vertices */
+#define TILES_MAX 4096    /* tilemap cells */
+#define BATCH_MAX 256     /* c:sprites positions */
 
 typedef struct {
     uint8_t op, size, align, fill, opa;
     int16_t a, b, c, d, e, f;
     int16_t width, radius, scale, angle;
-    uint16_t text;
+    uint16_t text;      /* OP_TEXT, OP_POLY, OP_TILES, OP_SPRITES: offset of its data in the arena */
     uint32_t color;
     luapp_img_t *img;
 } cop_t;
 
+/* Up to RECTS areas of a canvas, merged as they come (LVGL itself keeps 32
+ * invalid areas, then redraws the whole screen). */
+#define RECTS 8
+typedef struct {
+    int n;
+    lv_area_t r[RECTS];
+} rects_t;
+
 typedef struct {
     bool used;
     lv_obj_t *obj;
+    int zoom;
+    /* c:partial(true): only what changed is sent to the screen. pvalid: prev
+     * holds everything drawn since the last clear (of pcolor); pfull: some of
+     * it had no bounds. */
+    bool partial, pvalid, pfull;
+    uint32_t pcolor;
+    rects_t prev;
     lv_draw_buf_t db;
     uint8_t *buf;
     size_t bytes;
@@ -294,7 +315,7 @@ typedef struct {
     int arena_len;
 } canvas_t;
 
-static canvas_t s_cv[MAX_CANVAS];
+EXT_RAM_BSS_ATTR static canvas_t s_cv[MAX_CANVAS];
 
 static unsigned kb(size_t n) { return (unsigned)((n + 512) / 1024); }
 
@@ -302,7 +323,7 @@ static unsigned kb(size_t n) { return (unsigned)((n + 512) / 1024); }
  * writing it) needs to fix it. Call with the failed slot already cleared. */
 static const char *canvas_no_room(int w, int h, size_t n)
 {
-    static char msg[224];
+    EXT_RAM_BSS_ATTR static char msg[224];
     size_t cv = 0;
     for (int i = 0; i < MAX_CANVAS; i++) {
         if (s_cv[i].used) cv += s_cv[i].bytes;
@@ -368,6 +389,8 @@ void luapp_canvas_attach(int slot, lv_obj_t *obj, int zoom)
 {
     canvas_t *c = &s_cv[slot];
     c->obj = obj;
+    c->zoom = zoom > 1 ? zoom : 1;
+    c->pvalid = false;
     lv_canvas_set_draw_buf(obj, &c->db);
     lv_canvas_fill_bg(obj, lv_color_hex(c->color), LV_OPA_COVER);
     if (zoom > 1) {
@@ -402,26 +425,325 @@ void luapp_canvas_free(int slot)
     memset(c, 0, sizeof(*c));
 }
 
+/* ---- direct pixel ops: polygons, tilemaps and sprite batches write the
+ * RGB565 buffer themselves (exact, seamless, and far faster than an LVGL
+ * draw task per tile), between LVGL's layers. ---- */
+
+static inline uint16_t blend565(uint16_t fg, uint16_t bg, unsigned a)
+{
+    if (a >= 255) return fg;
+    a += a >> 7;   /* 0..256 */
+    unsigned r = (((fg >> 11) * a + (bg >> 11) * (256 - a)) >> 8) & 0x1f;
+    unsigned g = ((((fg >> 5) & 0x3f) * a + ((bg >> 5) & 0x3f) * (256 - a)) >> 8) & 0x3f;
+    unsigned b = (((fg & 0x1f) * a + (bg & 0x1f) * (256 - a)) >> 8) & 0x1f;
+    return (uint16_t)(r << 11 | g << 5 | b);
+}
+
+/* Even-odd scanline fill at pixel centres: any simple or concave shape. */
+static void fill_poly(canvas_t *c, const int16_t *v, int n, uint32_t color, uint8_t opa)
+{
+    if (!opa) return;
+    uint16_t col = lv_color_to_u16(lv_color_hex(color));
+    uint16_t *px = (uint16_t *)c->buf;
+    int ymin = v[1], ymax = v[1];
+    for (int i = 1; i < n; i++) {
+        if (v[2 * i + 1] < ymin) ymin = v[2 * i + 1];
+        if (v[2 * i + 1] > ymax) ymax = v[2 * i + 1];
+    }
+    if (ymin < 0) ymin = 0;
+    if (ymax > c->h) ymax = c->h;
+    float xs[POLY_MAX];
+    for (int y = ymin; y < ymax; y++) {
+        float yc = y + 0.5f;
+        int k = 0;
+        for (int i = 0, j = n - 1; i < n; j = i++) {
+            float y0 = v[2 * j + 1], y1 = v[2 * i + 1];
+            if ((y0 <= yc) != (y1 <= yc)) {
+                float x = v[2 * j] + (yc - y0) * (v[2 * i] - v[2 * j]) / (y1 - y0);
+                int m = k++;
+                while (m > 0 && xs[m - 1] > x) {   /* insertion sort */
+                    xs[m] = xs[m - 1];
+                    m--;
+                }
+                xs[m] = x;
+            }
+        }
+        uint16_t *row = px + (size_t)y * c->w;
+        for (int i = 0; i + 1 < k; i += 2) {
+            int xa = (int)ceilf(xs[i] - 0.5f), xb = (int)ceilf(xs[i + 1] - 0.5f);
+            if (xa < 0) xa = 0;
+            if (xb > c->w) xb = c->w;
+            for (int x = xa; x < xb; x++) row[x] = opa == 255 ? col : blend565(col, row[x], opa);
+        }
+    }
+}
+
+/* Source rectangle (sx, sy, sw, sh) of img, in its 1x pixels, drawn with its
+ * top-left at dx, dy, each pixel k x k; transparency kept. */
+static void blit(canvas_t *c, const luapp_img_t *img, int sx, int sy, int sw, int sh, int dx, int dy)
+{
+    int k = img->scale ? img->scale : 1, iw = img->dsc.header.w;
+    int x0 = dx < 0 ? 0 : dx, y0 = dy < 0 ? 0 : dy;
+    int x1 = dx + sw * k, y1 = dy + sh * k;
+    if (x1 > c->w) x1 = c->w;
+    if (y1 > c->h) y1 = c->h;
+    if (x0 >= x1 || y0 >= y1) return;
+    const uint16_t *src = (const uint16_t *)img->dsc.data;
+    const uint8_t *al = img->dsc.header.cf == LV_COLOR_FORMAT_RGB565A8
+                            ? img->dsc.data + (size_t)iw * img->dsc.header.h * 2 : NULL;
+    uint16_t *px = (uint16_t *)c->buf;
+    for (int y = y0; y < y1; y++) {
+        size_t r = (size_t)(sy + (y - dy) / k) * iw;
+        uint16_t *row = px + (size_t)y * c->w;
+        for (int x = x0; x < x1; x++) {
+            size_t q = r + sx + (x - dx) / k;
+            unsigned a = al ? al[q] : 255;
+            if (a == 255) row[x] = src[q];
+            else if (a) row[x] = blend565(src[q], row[x], a);
+        }
+    }
+}
+
+static void draw_tiles(canvas_t *c, const cop_t *o)
+{
+    const uint8_t *map = (const uint8_t *)c->arena + o->text;
+    int k = o->img->scale ? o->img->scale : 1, tw = o->c, th = o->d, cols = o->e;
+    int per_row = (int)o->img->dsc.header.w / tw;
+    for (int i = 0; i < o->width; i++) {
+        if (!map[i]) continue;
+        int t = map[i] - 1;
+        blit(c, o->img, (t % per_row) * tw, (t / per_row) * th, tw, th, o->a + (i % cols) * tw * k,
+             o->b + (i / cols) * th * k);
+    }
+}
+
+static void draw_sprites(canvas_t *c, const cop_t *o)
+{
+    const int16_t *p = (const int16_t *)(c->arena + o->text);
+    int w = o->img->dsc.header.w, h = o->img->dsc.header.h;
+    for (int i = 0; i < o->width; i++) blit(c, o->img, 0, 0, w, h, p[2 * i], p[2 * i + 1]);
+}
+
+/* ---- partial redraw (c:partial) ---- */
+
+static int64_t rect_size(const lv_area_t *a) { return (int64_t)(a->x2 - a->x1 + 1) * (a->y2 - a->y1 + 1); }
+
+static lv_area_t rect_join(const lv_area_t *a, const lv_area_t *b)
+{
+    return (lv_area_t){LV_MIN(a->x1, b->x1), LV_MIN(a->y1, b->y1), LV_MAX(a->x2, b->x2), LV_MAX(a->y2, b->y2)};
+}
+
+static void rects_add(rects_t *s, lv_area_t r)
+{
+    for (int i = 0; i < s->n; i++) {   /* touching or within 8 px: one area */
+        const lv_area_t *q = &s->r[i];
+        if (r.x1 <= q->x2 + 8 && q->x1 <= r.x2 + 8 && r.y1 <= q->y2 + 8 && q->y1 <= r.y2 + 8) {
+            s->r[i] = rect_join(q, &r);
+            return;
+        }
+    }
+    if (s->n < RECTS) {
+        s->r[s->n++] = r;
+        return;
+    }
+    int best = 0;   /* full: into the one it grows least */
+    int64_t grow = INT64_MAX;
+    for (int i = 0; i < s->n; i++) {
+        lv_area_t j = rect_join(&s->r[i], &r);
+        int64_t g = rect_size(&j) - rect_size(&s->r[i]);
+        if (g < grow) grow = g, best = i;
+    }
+    s->r[best] = rect_join(&s->r[best], &r);
+}
+
+/* Adds x1..x2, y1..y2 (canvas pixels) clipped to the canvas, if any of it is on it. */
+static void add_box(const canvas_t *c, rects_t *s, int32_t x1, int32_t y1, int32_t x2, int32_t y2)
+{
+    x1 = LV_MAX(x1, 0), y1 = LV_MAX(y1, 0), x2 = LV_MIN(x2, c->w - 1), y2 = LV_MIN(y2, c->h - 1);
+    if (x1 <= x2 && y1 <= y2) rects_add(s, (lv_area_t){x1, y1, x2, y2});
+}
+
+/* Where an op can paint; false when it can't be bounded. Generous by a pixel
+ * or two for antialiasing. */
+static bool op_rects(const canvas_t *c, const cop_t *o, rects_t *s)
+{
+    switch (o->op) {
+    case OP_RECT:
+    case OP_GRAD:
+        add_box(c, s, o->a, o->b, o->a + o->c - 1, o->b + o->d - 1);
+        return true;
+    case OP_CIRCLE:
+        add_box(c, s, o->a - o->c - 1, o->b - o->c - 1, o->a + o->c + 1, o->b + o->c + 1);
+        return true;
+    case OP_ARC:
+        add_box(c, s, o->a - o->c - 2, o->b - o->c - 2, o->a + o->c + 2, o->b + o->c + 2);
+        return true;
+    case OP_LINE: {
+        int m = o->width / 2 + 2;
+        add_box(c, s, LV_MIN(o->a, o->c) - m, LV_MIN(o->b, o->d) - m, LV_MAX(o->a, o->c) + m,
+                LV_MAX(o->b, o->d) + m);
+        return true;
+    }
+    case OP_TRI:
+        add_box(c, s, LV_MIN(o->a, LV_MIN(o->c, o->e)) - 1, LV_MIN(o->b, LV_MIN(o->d, o->f)) - 1,
+                LV_MAX(o->a, LV_MAX(o->c, o->e)) + 1, LV_MAX(o->b, LV_MAX(o->d, o->f)) + 1);
+        return true;
+    case OP_TEXT: {
+        /* No glyph widths here: a character is at most a line height wide. */
+        const lv_font_t *f = luapp_font(o->size);
+        int lh = lv_font_get_line_height(f), lines = 1, n = 0, most = 0;
+        for (const unsigned char *t = (const unsigned char *)c->arena + o->text; *t; t++) {
+            if (*t == '\n') {
+                lines++;
+                most = LV_MAX(most, n);
+                n = 0;
+            } else if ((*t & 0xC0) != 0x80) {
+                n++;
+            }
+        }
+        most = LV_MAX(most, n);
+        int w = most * lh, h = LV_MIN(lines, 8) * lh;
+        int x = o->align == 1 ? o->a - w / 2 : o->align == 2 ? o->a - w : o->a;
+        add_box(c, s, x - 2, o->b - 2, x + w + 2, o->b + h + 2);
+        return true;
+    }
+    case OP_IMAGE: {
+        int k = o->img->scale ? o->img->scale : 1, w = o->img->dsc.header.w, h = o->img->dsc.header.h;
+        int sw = w * k * o->scale / 100 + 2, sh = h * k * o->scale / 100 + 2;
+        if (o->angle) {   /* turning about its centre: within a circle round it */
+            int cx = o->a + k * w / 2, cy = o->b + k * h / 2, r = (sw + sh) / 2 + 2;
+            add_box(c, s, cx - r, cy - r, cx + r, cy + r);
+        } else {
+            add_box(c, s, o->a - 1, o->b - 1, o->a + sw, o->b + sh);
+        }
+        return true;
+    }
+    case OP_POLY: {
+        const int16_t *v = (const int16_t *)(c->arena + o->text);
+        int32_t x1 = v[0], y1 = v[1], x2 = v[0], y2 = v[1];
+        for (int i = 1; i < o->width; i++) {
+            x1 = LV_MIN(x1, v[2 * i]), x2 = LV_MAX(x2, v[2 * i]);
+            y1 = LV_MIN(y1, v[2 * i + 1]), y2 = LV_MAX(y2, v[2 * i + 1]);
+        }
+        add_box(c, s, x1 - 1, y1 - 1, x2 + 1, y2 + 1);
+        return true;
+    }
+    case OP_TILES: {
+        int k = o->img->scale ? o->img->scale : 1, rows = (o->width + o->e - 1) / o->e;
+        add_box(c, s, o->a, o->b, o->a + o->e * o->c * k - 1, o->b + rows * o->d * k - 1);
+        return true;
+    }
+    case OP_SPRITES: {
+        int k = o->img->scale ? o->img->scale : 1;
+        int w = o->img->dsc.header.w * k, h = o->img->dsc.header.h * k;
+        const int16_t *p = (const int16_t *)(c->arena + o->text);
+        for (int i = 0; i < o->width; i++) add_box(c, s, p[2 * i], p[2 * i + 1], p[2 * i] + w - 1, p[2 * i + 1] + h - 1);
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
+/* Under the lock, after drawing ops[from..]: tells LVGL what to redraw. With
+ * c:partial, only where those ops painted, plus (after a clear of the same
+ * colour) where everything since the previous clear did: the rest is as it was. */
+static void invalidate(canvas_t *c, int from, int clear)
+{
+    if (c->partial) lv_display_enable_invalidation(lv_obj_get_display(c->obj), true);
+    if (!c->partial) {
+        lv_obj_invalidate(c->obj);
+        return;
+    }
+    rects_t cur = {0};
+    bool unbounded = false;
+    for (int i = from; i < c->nops && !unbounded; i++) unbounded = !op_rects(c, &c->ops[i], &cur);
+    bool full = unbounded;
+    rects_t out = cur;
+    if (clear >= 0) {
+        uint32_t col = c->ops[clear].color;
+        if (!c->pvalid || c->pfull || col != c->pcolor) full = true;
+        for (int i = 0; !full && i < c->prev.n; i++) rects_add(&out, c->prev.r[i]);
+        c->pvalid = true;
+        c->pcolor = col;
+        c->pfull = unbounded;
+        c->prev = cur;
+    } else {
+        c->pfull |= unbounded;
+        for (int i = 0; i < cur.n; i++) rects_add(&c->prev, cur.r[i]);
+    }
+    int64_t sum = 0;
+    for (int i = 0; i < out.n; i++) sum += rect_size(&out.r[i]);
+    if (full || sum * 10 >= (int64_t)c->w * c->h * 7) {   /* most of it anyway: in one go */
+        lv_obj_invalidate(c->obj);
+        return;
+    }
+    lv_area_t co;
+    lv_obj_get_coords(c->obj, &co);
+    int z = c->zoom;
+    for (int i = 0; i < out.n; i++) {
+        const lv_area_t *r = &out.r[i];
+        lv_area_t a = {co.x1 + r->x1 * z, co.y1 + r->y1 * z, co.x1 + (r->x2 + 1) * z - 1, co.y1 + (r->y2 + 1) * z - 1};
+        lv_obj_invalidate_area(c->obj, &a);
+    }
+}
+
 /* Under the lock. */
 static void draw_ops(canvas_t *c)
 {
-    int from = 0;
+    /* LVGL's canvas calls (fill_bg, finish_layer) invalidate the whole canvas:
+     * with partial, keep them from it; invalidate() turns it back on. */
+    if (c->partial) lv_display_enable_invalidation(lv_obj_get_display(c->obj), false);
+    int from = 0, clear = -1;
     for (int i = c->nops - 1; i >= 0; i--) {
         if (c->ops[i].op == OP_CLEAR) {
             lv_canvas_fill_bg(c->obj, lv_color_hex(c->ops[i].color), LV_OPA_COVER);
             from = i + 1;
+            clear = i;
             break;
         }
     }
     if (from >= c->nops) {
-        lv_obj_invalidate(c->obj);
+        invalidate(c, from, clear);
         return;
     }
     lv_layer_t layer;
-    lv_canvas_init_layer(c->obj, &layer);
+    bool open = false;   /* LVGL's layer: direct pixel ops wait for what it queued */
     for (int i = from; i < c->nops; i++) {
         const cop_t *o = &c->ops[i];
+        bool direct = o->op == OP_POLY || o->op == OP_TILES || o->op == OP_SPRITES;
+        if (direct && open) {
+            lv_canvas_finish_layer(c->obj, &layer);
+            open = false;
+        } else if (!direct && !open) {
+            lv_canvas_init_layer(c->obj, &layer);
+            open = true;
+        }
         switch (o->op) {
+        case OP_POLY:
+            fill_poly(c, (const int16_t *)(c->arena + o->text), o->width, o->color, o->opa);
+            break;
+        case OP_TILES:
+            draw_tiles(c, o);
+            break;
+        case OP_SPRITES:
+            draw_sprites(c, o);
+            break;
+        case OP_GRAD: {
+            lv_draw_rect_dsc_t d;
+            lv_draw_rect_dsc_init(&d);
+            lv_area_t a = {o->a, o->b, o->a + o->c - 1, o->b + o->d - 1};
+            uint32_t c2 = (uint16_t)o->e | (uint32_t)(uint8_t)o->f << 16;
+            d.radius = o->radius;
+            d.bg_opa = o->opa;
+            d.bg_color = lv_color_hex(o->color);
+            d.bg_grad.dir = o->align ? LV_GRAD_DIR_HOR : LV_GRAD_DIR_VER;
+            d.bg_grad.stops_count = 2;
+            d.bg_grad.stops[0] = (lv_grad_stop_t){lv_color_hex(o->color), LV_OPA_COVER, 0};
+            d.bg_grad.stops[1] = (lv_grad_stop_t){lv_color_hex(c2), LV_OPA_COVER, 255};
+            lv_draw_rect(&layer, &d, &a);
+            break;
+        }
         case OP_RECT:
         case OP_CIRCLE: {
             lv_draw_rect_dsc_t d;
@@ -540,14 +862,17 @@ static void draw_ops(canvas_t *c)
             break;
         }
     }
-    lv_canvas_finish_layer(c->obj, &layer);
+    if (open) lv_canvas_finish_layer(c->obj, &layer);
+    invalidate(c, from, clear);   /* direct pixel ops don't */
 }
 
 static void flush_one(canvas_t *c)
 {
     if (!c->nops) return;
     if (luapp_lock()) {
+        int64_t t0 = esp_timer_get_time();
         draw_ops(c);
+        luapp_perf_draw(esp_timer_get_time() - t0, false);
         luapp_unlock();
     }
     drop_ops(c);
@@ -555,9 +880,14 @@ static void flush_one(canvas_t *c)
 
 void luapp_gfx_flush(void)
 {
+    bool frame = false;
     for (int i = 0; i < MAX_CANVAS; i++) {
-        if (s_cv[i].used) flush_one(&s_cv[i]);
+        if (s_cv[i].used && s_cv[i].nops) {
+            frame = true;
+            flush_one(&s_cv[i]);
+        }
     }
+    if (frame) luapp_perf_draw(0, true);   /* one app frame, however many canvases */
     luapp_gfx_collect();
 }
 
@@ -738,6 +1068,147 @@ static int c_pixel(lua_State *L)
     return 0;
 }
 
+/* n bytes of the canvas's arena for an op's data, drawing what's queued
+ * first if the arena or the op list is full. Returns its offset. */
+static int arena_take(lua_State *L, canvas_t *c, int n, const char *what)
+{
+    int off = (c->arena_len + 1) & ~1;   /* int16 data */
+    if (c->nops >= MAX_OPS || off + n > ARENA_MAX) {
+        flush_one(c);
+        off = 0;
+    }
+    if (n > ARENA_MAX) luaL_error(L, "%s: too much data", what);
+    c->arena_len = off + n;
+    return off;
+}
+
+/* c:polygon(points, color [, opacity or {opacity=}]): filled; points =
+ * {x1, y1, x2, y2, ...}, 3 to 32 corners; any shape (overlaps: even-odd). */
+static int c_polygon(lua_State *L)
+{
+    canvas_t *c = &s_cv[luapp_canvas_arg(L, 1)];
+    luaL_checktype(L, 2, LUA_TTABLE);
+    uint32_t color = color_arg(L, 3);
+    int opa = lua_isnumber(L, 4) ? (int)luaL_checkinteger(L, 4) : opt_field(L, 4, "opacity", 255, 0, 255);
+    opa = opa < 0 ? 0 : opa > 255 ? 255 : opa;
+    int len = (int)lua_rawlen(L, 2);
+    if (len < 6 || len > 2 * POLY_MAX || len % 2) {
+        return luaL_error(L, "c:polygon: points is {x1, y1, x2, y2, ...}, 3 to %d corners", POLY_MAX);
+    }
+    int off = arena_take(L, c, len * 2, "c:polygon");
+    int16_t *v = (int16_t *)(c->arena + off);
+    for (int i = 0; i < len; i++) {
+        lua_rawgeti(L, 2, i + 1);
+        v[i] = coord(L, -1);
+        lua_pop(L, 1);
+    }
+    cop_t *o = new_op(L, &c, OP_POLY);
+    o->text = (uint16_t)off, o->width = (int16_t)(len / 2), o->color = color, o->opa = (uint8_t)opa;
+    return 0;
+}
+
+/* c:gradient(x, y, w, h, color1, color2 [, "v" | "h" or {dir="v", radius=0, opacity=255}]) */
+static int c_gradient(lua_State *L)
+{
+    int16_t x = coord(L, 2), y = coord(L, 3), w = coord(L, 4), h = coord(L, 5);
+    uint32_t c1 = color_arg(L, 6), c2 = color_arg(L, 7);
+    bool hor = false;
+    if (lua_type(L, 8) == LUA_TSTRING) {
+        hor = lua_tostring(L, 8)[0] == 'h';
+    } else if (lua_istable(L, 8)) {
+        if (lua_getfield(L, 8, "dir") == LUA_TSTRING) hor = lua_tostring(L, -1)[0] == 'h';
+        lua_pop(L, 1);
+    }
+    int radius = opt_field(L, 8, "radius", 0, 0, 1000);
+    int opa = opt_field(L, 8, "opacity", 255, 0, 255);
+    canvas_t *c;
+    if (w <= 0 || h <= 0) return 0;
+    cop_t *o = new_op(L, &c, OP_GRAD);
+    o->a = x, o->b = y, o->c = w, o->d = h, o->color = c1;
+    o->e = (int16_t)(uint16_t)(c2 & 0xffff), o->f = (int16_t)(c2 >> 16);
+    o->align = hor, o->radius = (int16_t)radius, o->opa = (uint8_t)opa;
+    return 0;
+}
+
+/* c:tilemap(sheet, tile_w, tile_h, map, cols [, x=0, y=0]): sheet is an image
+ * of tiles left to right, top to bottom (numbered from 1); map a flat list of
+ * tile numbers, cols to a row, 0 = empty. Tile sizes are in drawn pixels, like
+ * sheet.w (a sprite's scale enlarges every tile). One op. */
+static int c_tilemap(lua_State *L)
+{
+    canvas_t *c = &s_cv[luapp_canvas_arg(L, 1)];
+    luapp_img_t *img = luapp_gfx_check_image(L, 2);
+    int k = img->scale ? img->scale : 1;
+    int tw = (int)luaL_checkinteger(L, 3), th = (int)luaL_checkinteger(L, 4);
+    luaL_checktype(L, 5, LUA_TTABLE);
+    int cols = (int)luaL_checkinteger(L, 6);
+    int16_t x = lua_isnoneornil(L, 7) ? 0 : coord(L, 7), y = lua_isnoneornil(L, 8) ? 0 : coord(L, 8);
+    int iw = img->dsc.header.w, ih = img->dsc.header.h;
+    if (tw < k || th < k || tw % k || th % k) {
+        return luaL_error(L, "c:tilemap: tile sizes must be whole multiples of the sheet's scale (%d)", k);
+    }
+    tw /= k, th /= k;
+    if (tw > iw || th > ih) return luaL_error(L, "c:tilemap: tiles are bigger than the sheet");
+    int ntiles = (iw / tw) * (ih / th);
+    int n = (int)lua_rawlen(L, 5);
+    if (cols < 1 || n < 1 || n > TILES_MAX) {
+        return luaL_error(L, "c:tilemap: map needs 1 to %d tile numbers and cols >= 1", TILES_MAX);
+    }
+    int off = arena_take(L, c, n, "c:tilemap");
+    uint8_t *map = (uint8_t *)c->arena + off;
+    for (int i = 0; i < n; i++) {
+        lua_rawgeti(L, 5, i + 1);
+        lua_Integer t = lua_tointeger(L, -1);
+        lua_pop(L, 1);
+        if (t < 0 || t > ntiles || t > 255) {
+            return luaL_error(L, "c:tilemap: map[%d] is %d, but the sheet has %d tiles (255 at most)", i + 1,
+                              (int)t, ntiles);
+        }
+        map[i] = (uint8_t)t;
+    }
+    cop_t *o = new_op(L, &c, OP_TILES);
+    o->a = x, o->b = y, o->c = (int16_t)tw, o->d = (int16_t)th, o->e = (int16_t)cols, o->width = (int16_t)n;
+    o->text = (uint16_t)off;
+    o->img = img;
+    luapp_img_ref(img);
+    return 0;
+}
+
+/* c:sprites(img, {x1, y1, x2, y2, ...}): the image (at its scale, no
+ * rotation) at up to 256 top-left positions, in one op. */
+static int c_sprites(lua_State *L)
+{
+    canvas_t *c = &s_cv[luapp_canvas_arg(L, 1)];
+    luapp_img_t *img = luapp_gfx_check_image(L, 2);
+    luaL_checktype(L, 3, LUA_TTABLE);
+    int len = (int)lua_rawlen(L, 3);
+    if (len % 2 || len > 2 * BATCH_MAX) {
+        return luaL_error(L, "c:sprites: positions are {x1, y1, x2, y2, ...}, %d at most", BATCH_MAX);
+    }
+    if (!len) return 0;
+    int off = arena_take(L, c, len * 2, "c:sprites");
+    int16_t *p = (int16_t *)(c->arena + off);
+    for (int i = 0; i < len; i++) {
+        lua_rawgeti(L, 3, i + 1);
+        p[i] = coord(L, -1);
+        lua_pop(L, 1);
+    }
+    cop_t *o = new_op(L, &c, OP_SPRITES);
+    o->width = (int16_t)(len / 2), o->text = (uint16_t)off;
+    o->img = img;
+    luapp_img_ref(img);
+    return 0;
+}
+
+/* c:partial(on): send the screen only what changed (see invalidate). */
+static int c_partial(lua_State *L)
+{
+    canvas_t *c = &s_cv[luapp_canvas_arg(L, 1)];
+    c->partial = lua_toboolean(L, 2);
+    c->pvalid = false;   /* the next clear redraws it all */
+    return 0;
+}
+
 static int c_size(lua_State *L)
 {
     canvas_t *c = &s_cv[luapp_canvas_arg(L, 1)];
@@ -779,10 +1250,13 @@ void luapp_gfx_open(lua_State *L)
 
     static const luaL_Reg cm[] = {{"clear", c_clear}, {"rect", c_rect}, {"circle", c_circle}, {"line", c_line},
                                   {"triangle", c_triangle}, {"arc", c_arc}, {"text", c_text}, {"image", c_image},
-                                  {"pixel", c_pixel}, {"size", c_size}, {NULL, NULL}};
+                                  {"pixel", c_pixel}, {"size", c_size}, {"polygon", c_polygon},
+                                  {"gradient", c_gradient}, {"tilemap", c_tilemap}, {"sprites", c_sprites},
+                                  {"partial", c_partial}, {NULL, NULL}};
     luaL_setfuncs(L, cm, 0);   /* into the widget methods table on top */
 
     static const luaL_Reg g[] = {{"image", l_image}, {"sprite", l_sprite}, {"memory", l_memory}, {NULL, NULL}};
     luaL_newlib(L, g);
+    luapp_perf_gfx_fields(L);   /* gfx.stats, gfx.show_stats */
     lua_setglobal(L, "gfx");
 }

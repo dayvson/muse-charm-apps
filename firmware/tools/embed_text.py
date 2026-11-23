@@ -4,7 +4,9 @@
     firmware/tools/embed_text.py firmware/luapp_api.c \\
         firmware/luapp_api.md luapp_api_md \\
         firmware/luapp_api_gfx.md luapp_api_gfx_md \\
-        firmware/luapp_api_sound.md luapp_api_sound_md
+        firmware/luapp_api_sound.md luapp_api_sound_md \\
+        firmware/luapp_api_ui.md luapp_api_ui_md \\
+        firmware/luapp_api_device.md luapp_api_device_md
 """
 import sys
 from pathlib import Path

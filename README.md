@@ -25,12 +25,21 @@ with its own commands:
 | **Stocks** | META, SHOP and SPY: price, change, and a chart over 1D, 1W, 1M, 1Y or 5Y, from Yahoo Finance's keyless chart API (`stocks.show`, `stocks.get`). |
 | **Wind** | A kite forecast in knots: now, today, tomorrow and the week, with the best session window. It covers two home spots plus any place Muse sets (`wind.set_spot`, `wind.show`, `wind.get`). |
 
+| Watch | Stocks | Wind | The launcher |
+|---|---|---|---|
+| ![Watch](firmware/preview/watch-1009.png) | ![Stocks](firmware/preview/stocks-META-1W.png) | ![Wind](firmware/preview/wind-crandon-today.png) | ![Launcher](firmware/preview/launcher-6-p1.png) |
+
 **An app launcher for Lua apps.** Muse writes an app in Lua and installs it over
 its link to the board with `luapp.install`. The board compiles, saves and opens
-it at once, with no firmware build and no flashing. Apps get widgets,
-touch, timers, HTTP and JSON, per-app storage, PNG and JPEG images, pixel-art
-sprites, a drawing canvas for games, and a 4-channel synth. Up to 9 apps, 64 KB
-of source each, run one at a time in a sandbox on their own task.
+it at once, with no firmware build and no flashing. Apps get widgets (rollers,
+sliders, switches, lists, scrolling areas), animation, touch and swipes, timers,
+HTTP and JSON, per-app storage and files, PNG and JPEG images, pixel-art sprites,
+a drawing canvas for games (timers down to 16 ms, and frames that send the
+screen only what changed), a 4-channel synth, the battery, the
+microphone level and the motion sensor, alarms that wake the board, and
+`muse.ask` to put a question to Muse from inside an app. Muse can take a
+screenshot of what its app draws, and measure its speed. Up to 9 apps, 64 KB of
+source each, run one at a time in a sandbox on their own task.
 
 **Apps by Muse.** These Lua apps were written by Muse and deployed to the board
 through the launcher, with no firmware change. Each folder in [`apps/`](apps/) has
@@ -47,13 +56,23 @@ the source and a README:
 | [**Weather**](apps/weather/) | A living sky for Miami, New York, Rio de Janeiro or San Francisco: an animated sun, moon, stars, clouds, rain or snow, a big temperature and the next three hours, from Open-Meteo. |
 | [**Lab**](apps/lab/) | A test bench for the new firmware APIs: a roller page picker, device.info with a live mic bar, motion.read values, a muse.ask button and a 1-minute alarm test. |
 
+| Timer | Paddle Ball | Moon Phase | Horoscope |
+|---|---|---|---|
+| ![Timer](docs/images/apps/timer.png) | ![Paddle Ball](docs/images/apps/paddle.png) | ![Moon Phase](docs/images/apps/moon.png) | ![Horoscope](docs/images/apps/horoscope.png) |
+| **Converter** | **F1** | **Weather** | **The launcher** |
+| ![Converter](docs/images/apps/fx.png) | ![F1](docs/images/apps/f1.png) | ![Weather](docs/images/apps/weather.png) | ![The Apps launcher with Muse's apps](docs/images/apps/launcher.png) |
+
+<sub>Screenshots taken on the board with `scripts/07_screenshots.sh`.</sub>
+
 **Your own avatar, or the default one.** The board can show the SDK's default
 character, or your Muse's real avatar animation made from the clips Muse
-exports ([docs/avatar.md](docs/avatar.md)).
+exports ([docs/avatar.md](docs/avatar.md)). One command switches between them.
 
-| Watch | Stocks | Wind | Launcher |
-|---|---|---|---|
-| ![Watch](firmware/preview/watch-1009.png) | ![Stocks](firmware/preview/stocks-META-1W.png) | ![Wind](firmware/preview/wind-crandon-today.png) | ![Launcher](firmware/preview/launcher-6-p1.png) |
+| Default avatar | Your own: Vela, made from its clips |
+|---|---|
+| ![The SDK's default avatar](docs/images/avatar-default.png) | ![Vela, a Muse avatar made from its clips](docs/images/avatar-vela.png) |
+
+<sub>Both are rendered on the Mac with the firmware's own avatar renderer (`tools/muse/make_gifs.py`), showing an idle frame.</sub>
 
 ## Quick start
 
@@ -72,7 +91,8 @@ scripts/03_set_token.sh             # store your SDK token on the board, then pa
 ```
 
 Then teach Muse to write apps: send it [`muse-prompts/lua-apps.md`](muse-prompts/lua-apps.md)
-once, and ask for an app.
+once, and ask for an app. To have Muse commit its apps to your fork, also send
+[`muse-prompts/publish-apps.md`](muse-prompts/publish-apps.md).
 
 **The full walkthrough is in [docs/setup.md](docs/setup.md).** Read it before
 flashing.
@@ -98,9 +118,11 @@ firmware/            the native apps, the launcher and the Lua runtime (linked i
   preview/           rendered previews of the native apps
 config/              build settings overlay, partition table, the device guide Muse reads
 patches/             changes to the SDK (applied by scripts/00_setup.sh)
-scripts/             setup, build, flash, token, avatar, logs
+scripts/             setup, build, flash, token, avatar, logs, screenshots, link check
 gif-avatar/          the clip-to-avatar converter and the prompts that ask Muse for clips
-muse-prompts/        instructions we give Muse (how to write Lua apps)
+muse-prompts/        instructions we give Muse: lua-apps.md (writing apps), publish-apps.md
+                     (committing them here), and notes we sent about firmware updates
+docs/images/         the screenshots in this README
 ```
 
 These are created locally and never committed: `muse-gadget-sdk/`, `toolchain/`,

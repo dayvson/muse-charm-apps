@@ -5,6 +5,7 @@
  */
 
 #include <stdatomic.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <sys/time.h>
 #include <string.h>
@@ -256,11 +257,51 @@ void muse_apps_register_commands(cJSON *commands)
     add(commands, "luapp.run", "Open an installed Lua app; returns its start-up error, if any.", req, NULL);
     req = cJSON_CreateObject();
     opt = cJSON_CreateObject();
-    param(req, "action", "api, api_gfx, api_sound (the Lua API), list, logs, stop, remove or source.");
+    param(req, "action", "api, api_ui, api_gfx, api_sound, api_device (the Lua API), list, logs, stop, remove, "
+                         "source, screenshot (PNG pages), widgets or perf (fps, ms per frame).");
     param(opt, "id", "For remove and source.");
-    typed(opt, "offset", "integer", "For source: where to read from.");
+    typed(opt, "offset", "integer", "For source and screenshot: where to read from.");
     typed(opt, "force", "boolean", "For stop: reboot if it won't stop in 3 s.");
+    typed(opt, "full", "boolean", "For screenshot: 466 px (default 233).");
     add(commands, "luapp.admin", "Manage Lua apps.", req, opt);
+    req = cJSON_CreateObject();
+    opt = cJSON_CreateObject();
+    param(req, "data", "JSON text (or plain text) for the app.");
+    param(opt, "id", "Only if this app is running.");
+    add(commands, "luapp.send", "Pass data to the running app's app.on_message; returns what it returns.", req, opt);
+}
+
+bool muse_apps_console(const char *line)
+{
+    if (strncmp(line, "apps ", 5) != 0) return false;
+    const char *cmd = line + 5;
+    size_t n = strcspn(cmd, " ");
+    char command[32];
+    if (n == 0 || n >= sizeof(command)) {
+        printf("@apps {\"ok\":false,\"error\":\"usage: apps COMMAND [JSON params]\"}\n");
+        fflush(stdout);
+        return true;
+    }
+    memcpy(command, cmd, n);
+    command[n] = '\0';
+    const char *json = cmd + n + strspn(cmd + n, " ");
+    cJSON *params = *json ? cJSON_Parse(json) : NULL;
+    cJSON *result;
+    if (*json && !cJSON_IsObject(params)) {
+        result = apps_error("invalid_params", "params must be a JSON object");
+    } else if (!muse_apps_handles(command)) {
+        result = apps_error("unknown_command", command);
+    } else {
+        /* Generation 0: an asynchronous result has no session to go to and is dropped. */
+        result = muse_apps_command(command, params, "console", 0);
+    }
+    cJSON_Delete(params);
+    char *text = result ? cJSON_PrintUnformatted(result) : NULL;
+    printf("@apps %s\n", text ? text : "{}");
+    fflush(stdout);
+    cJSON_free(text);
+    cJSON_Delete(result);
+    return true;
 }
 
 bool muse_apps_handles(const char *command)

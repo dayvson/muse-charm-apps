@@ -49,6 +49,12 @@ static esp_err_t on_http(esp_http_client_event_t *e)
 
 int apps_net_get(const char *url, const char **body, size_t *len)
 {
+    return apps_net_request("GET", url, NULL, NULL, 0, body, len);
+}
+
+int apps_net_request(const char *method, const char *url, const char *headers, const char *data, size_t data_len,
+                     const char **body, size_t *len)
+{
     *body = NULL;
     *len = 0;
     size_t int_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
@@ -75,12 +81,35 @@ int apps_net_get(const char *url, const char **body, size_t *len)
     };
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
     if (!c) return 0;
+    static const struct { const char *name; esp_http_client_method_t m; } METHODS[] = {
+        {"GET", HTTP_METHOD_GET}, {"POST", HTTP_METHOD_POST}, {"PUT", HTTP_METHOD_PUT},
+        {"PATCH", HTTP_METHOD_PATCH}, {"DELETE", HTTP_METHOD_DELETE}, {"HEAD", HTTP_METHOD_HEAD},
+    };
+    for (size_t i = 0; method && i < sizeof(METHODS) / sizeof(METHODS[0]); i++) {
+        if (!strcmp(method, METHODS[i].name)) esp_http_client_set_method(c, METHODS[i].m);
+    }
+    /* "Name: value" lines, separated by \n. */
+    for (const char *h = headers; h && *h;) {
+        const char *eol = strchr(h, '\n'), *end = eol ? eol : h + strlen(h);
+        const char *colon = memchr(h, ':', (size_t)(end - h));
+        if (colon && colon > h && end - h < 512) {
+            char line[512];
+            memcpy(line, h, (size_t)(end - h));
+            line[end - h] = 0;
+            line[colon - h] = 0;
+            const char *v = line + (colon - h) + 1;
+            while (*v == ' ') v++;
+            esp_http_client_set_header(c, line, v);
+        }
+        h = eol ? eol + 1 : end;
+    }
+    if (data && data_len) esp_http_client_set_post_field(c, data, (int)data_len);
     esp_err_t err = esp_http_client_perform(c);
     int status = esp_http_client_get_status_code(c);
     esp_http_client_cleanup(c);
     s_body[s_len] = 0;
-    ESP_LOGI(TAG, "HTTP %d, %u bytes (internal RAM %uK/%uK before, %uK after, min %uK)", status, (unsigned)s_len,
-             (unsigned)(int_free / 1024), (unsigned)(int_block / 1024),
+    ESP_LOGI(TAG, "%s %d, %u bytes (internal RAM %uK/%uK before, %uK after, min %uK)",
+             method ? method : "GET", status, (unsigned)s_len, (unsigned)(int_free / 1024), (unsigned)(int_block / 1024),
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) / 1024),
              (unsigned)(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) / 1024));
     if (err != ESP_OK || s_overflow) return 0;

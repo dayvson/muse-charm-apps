@@ -162,6 +162,12 @@ scripts/capture_log.sh 120          # streams and saves logs/serial-<time>.log; 
 `scripts/06_ask_muse.sh "message"` types a message to Muse through the board and
 saves the reply in `logs/`, which is handy for scripting.
 
+`scripts/07_screenshots.sh` opens each installed Lua app over USB and saves a
+screenshot of it in `docs/images/apps/` (keep the board awake and on Wi-Fi so apps
+can fetch their data). To have Muse commit the apps it builds to your copy of this
+repository, send it [`muse-prompts/publish-apps.md`](../muse-prompts/publish-apps.md)
+once ([launcher.md](launcher.md)).
+
 ## Updating
 
 - **Lua apps** never need a rebuild: Muse reinstalls them over the air.
@@ -184,5 +190,7 @@ saves the reply in `logs/`, which is handy for scripting.
 | Build says "The SDK isn't set up" | Run `scripts/00_setup.sh` (the link to `firmware/` or the SDK is missing). |
 | Stocks or Wind stay empty | Fetches wait until Muse's connection is steady, the screen is awake and no call is active. Check `scripts/capture_log.sh` for `apps_net:` lines; low internal RAM skips a fetch ([memory.md](memory.md)). |
 | A Lua app hangs the screen | Long-press to exit. Muse can `luapp.admin` `stop`, or with `force=true` reboot the board ([launcher.md](launcher.md)). |
+| Muse says it sent a command, but nothing happens on the board | Run `scripts/08_link_check.sh` and ask Muse for a command while it listens: it reports whether the command reached the board and what the link did. `link.register held for DMA headroom` in the log means internal RAM is short ([memory.md](memory.md)). |
+| `scripts/07_screenshots.sh` says "no answer" or "screenshots are off" | The firmware predates the apps console or snapshots: rebuild and `scripts/04_flash_muse.sh --reflash`. |
 | `scripts/06_ask_muse.sh` returns an empty reply | Muse took longer than the board waits. The reply still arrives in the Muse app. |
 | Want the factory firmware back | Write your backup (step 2). |

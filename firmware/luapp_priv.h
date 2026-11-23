@@ -9,6 +9,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "cJSON.h"
 #include "lauxlib.h"
 #include "lua.h"
 #include "luapp_image.h"
@@ -68,3 +69,45 @@ int luapp_canvas_arg(lua_State *L, int idx);
 void luapp_sound_open(lua_State *L);
 /* The app started (true) or stopped (false): sound stops with it. */
 void luapp_sound_enable(bool on);
+
+/* ---- luapp_vm.c, for luapp_dev.c ---- */
+
+const char *luapp_vm_app_id(void);                 /* the running app's id ("" if none) */
+void luapp_vm_app_name(char *out, size_t n);
+void luapp_vm_forgive(int64_t us);                 /* time not counted against the callback */
+void luapp_vm_wake(void);                          /* any task: run luapp_dev_tick soon */
+bool luapp_vm_call(int nargs);                     /* false: the app stopped */
+bool luapp_vm_call_results(int nargs, int nres);   /* results left on the stack; then luapp_vm_after_call */
+void luapp_vm_after_call(void);
+void luapp_vm_fire_alarm(const char *id, const char *tag);
+
+/* ---- luapp_dev.c ---- */
+
+void luapp_dev_open(lua_State *L);        /* device, mic, motion, fs, apps, muse */
+void luapp_dev_app_fields(lua_State *L);  /* into the app table on top of the stack */
+void luapp_dev_ui_fields(lua_State *L);   /* into the ui table on top of the stack */
+void luapp_dev_stop(void);
+int64_t luapp_dev_tick(void);             /* between callbacks; next time it needs to run */
+void luapp_dev_alarms_forget(const char *id);
+void luapp_dev_call_alarm(const char *tag);
+/* luapp.send: calls app.on_message(data), returns its result as JSON, or NULL and *err. */
+cJSON *luapp_dev_message(const cJSON *data, const char **err);
+void luapp_push_cjson(lua_State *L, const cJSON *v, int depth);
+cJSON *luapp_to_cjson(lua_State *L, int idx, int depth);
+
+/* ---- luapp_shot.c ---- */
+
+/* offset 0 takes a picture of the screen (scale 1: 466 px, 2: 233 px); a
+ * page of its PNG in base64 from offset, or NULL and *err. */
+cJSON *luapp_shot(int scale, size_t offset, const char **err);
+void luapp_shot_expire(void);
+
+/* ---- luapp_perf.c: speed over the last second ---- */
+
+void luapp_perf_hook(void);                   /* under the display lock, once */
+void luapp_perf_lua(int64_t us);              /* a Lua callback took us */
+void luapp_perf_draw(int64_t us, bool frame); /* canvas drawing; frame: the app's frame ended */
+void luapp_perf_tick(void);                   /* Lua task loop */
+cJSON *luapp_perf_json(void);
+void luapp_perf_gfx_fields(lua_State *L);     /* gfx.stats, gfx.show_stats */
+void luapp_perf_stop(void);

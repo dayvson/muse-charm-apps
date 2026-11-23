@@ -28,3 +28,7 @@ CONFIG_MUSE_DEVICE_GUIDE="@ROOT@/config/device-guide.md"
 CONFIG_LV_FONT_MONTSERRAT_48=y
 # Our partition table: the SDK's plus "luapps", a 1 MB FAT partition for Lua apps Muse builds.
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="@ROOT@/config/partitions-muse-charm.csv"
+# Screenshots over USB ('p' on the serial console; scripts/07_screenshots.sh) and the
+# console's ui= bench commands: under 1 KB of code, plus a screen-sized buffer
+# (466x466 RGB565, ~424 KB of PSRAM) only while taking one.
+CONFIG_LV_USE_SNAPSHOT=y

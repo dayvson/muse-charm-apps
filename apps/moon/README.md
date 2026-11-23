@@ -25,11 +25,18 @@ a known new moon (2000-01-06 18:14 UTC) modulo the synodic month
 the phase angle, the standard terminator-ellipse geometry, drawn two
 pixel rows at a time.
 
-One sizing note: the drawing surface is a 176x176 canvas shown at
-zoom 2, a quarter of the memory of the 352 canvas it replaced
-(62 KB instead of 242 KB). A small proxy halves every coordinate
-and size into canvas pixels, so the drawing code still works in
-its 352-wide space.
+One sizing note: the drawing surface is a native 352x352 canvas at
+zoom 1 (242 KB), the size the app was first built at; a zoom 2
+detour through a 176x176 canvas is retired. The canvas runs in
+partial mode, and the sweep never repaints the scene: each frame
+paints only the sliver of each disc row whose lit span changed
+since the previous frame, plus the text block under the disc,
+and the disc rows (position and half-width) are computed once at
+start-up. A full render happens on the first frame, when the
+sweep settles, and on the minute refresh. Measured on the speed
+firmware, the sweep runs at about 22 fps with 14 ms of drawing
+per frame, against 5.6 fps and 91 ms for the zoom 2 build
+repainting in full.
 
 ## Icon
 

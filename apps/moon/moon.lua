@@ -5,6 +5,13 @@
 -- animated transition: the terminator sweeps from new moon across
 -- the cycle to today's phase in about two and a half seconds.
 -- Tap to replay it.
+--
+-- The canvas is a native 352x352 at zoom 1 (no scaling proxy).
+-- It runs in partial mode, and the sweep does not repaint the
+-- scene: each frame paints only the sliver of each disc row
+-- whose lit span changed, plus the text block under the disc.
+-- A full render happens on the first frame, at the end of the
+-- sweep, and on the minute refresh.
 
 local BG = 0x07070C
 local LIT = 0xE9E2CE
@@ -27,20 +34,59 @@ local WDAYS = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
 local CX, CY, R = 176, 146, 86
 local ANIM_LEN = 2.4 -- seconds
 
+-- the disc rows, computed once: dy from the centre and the
+-- row's half-width, so no frame ever does this sqrt again
+local ROWS = {}
+for y = -R, R, 2 do
+  ROWS[#ROWS + 1] = {y, math.sqrt(R * R - y * y)}
+end
+
 local anim_t0 = nil
 local anim_to = 0
+local prev_age = nil -- the phase the screen shows mid-sweep
+
+local c -- the canvas, created below
 
 local function today_age()
   return ((time.now() - NEW_MOON) / 86400) % SYNODIC
 end
 
-local function render(age)
+-- the lit span of one disc row at a phase, as a, b; the span
+-- is empty (b <= a) when the row is fully dark at that phase
+local function lit_span(age, rx)
+  local cos_t = math.cos(2 * math.pi * age / SYNODIC)
+  if age < SYNODIC / 2 then
+    return CX + rx * cos_t, CX + rx
+  end
+  return CX - rx, CX - rx * cos_t
+end
+
+local function draw_texts(age)
   local theta = 2 * math.pi * age / SYNODIC
   local illum = math.floor((1 - math.cos(theta)) / 2 * 100 + 0.5)
   local name = NAMES[math.floor(age / SYNODIC * 8 + 0.5) % 8 + 1]
-  local cos_t = math.cos(theta)
   local waxing = age < SYNODIC / 2
+  local d = time.date()
+  c:text(name, 176, 248, PALE, 28, "center")
+  c:text(illum .. "% lit, day " .. string.format("%.1f", age),
+         176, 282, LAV, 16, "center")
+  local nxt, what
+  if waxing then
+    nxt = math.floor(SYNODIC / 2 - age + 0.5); what = "Full moon"
+  else
+    nxt = math.floor(SYNODIC - age + 0.5); what = "New moon"
+  end
+  c:text(what .. " in " .. nxt .. (nxt == 1 and " day" or " days"),
+         176, 303, LAV, 14, "center")
+  c:text(WDAYS[d.wday] .. ", " .. MONTHS[d.month] .. " " .. d.day .. " " ..
+         d.year, 176, 322, 0x55566E, 14, "center")
+  if not time.synced() then
+    c:text("clock not synced yet", 176, 340, 0x55566E, 14, "center")
+  end
+  return name, illum
+end
 
+local function render(age)
   c:clear(BG)
 
   -- stars, seeded by the day so the sky is stable all day
@@ -62,42 +108,53 @@ local function render(age)
   end
 
   -- the disc, row by row: dark side first, then the lit span
-  for y = -R, R, 2 do
-    local rx = math.sqrt(R * R - y * y)
-    c:line(CX - rx, CY + y, CX + rx, CY + y, DARK, 2)
-    local a, b
-    if waxing then
-      a, b = CX + rx * cos_t, CX + rx
-    else
-      a, b = CX - rx, CX - rx * cos_t
-    end
-    if b > a then c:line(a, CY + y, b, CY + y, LIT, 2) end
+  for _, row in ipairs(ROWS) do
+    local y, rx = CY + row[1], row[2]
+    c:line(CX - rx, y, CX + rx, y, DARK, 2)
+    local a, b = lit_span(age, rx)
+    if b > a then c:line(a, y, b, y, LIT, 2) end
   end
   c:arc(CX, CY, R, 0, 360, 0x34343F, 2)
 
-  local d = time.date()
-  c:text(name, 176, 248, PALE, 28, "center")
-  c:text(illum .. "% lit, day " .. string.format("%.1f", age),
-         176, 282, LAV, 16, "center")
-  local nxt, what
-  if waxing then
-    nxt = math.floor(SYNODIC / 2 - age + 0.5); what = "Full moon"
-  else
-    nxt = math.floor(SYNODIC - age + 0.5); what = "New moon"
+  return draw_texts(age)
+end
+
+-- one sweep frame: per disc row, paint dark over the parts of
+-- the old lit span the new phase no longer covers, and light
+-- over the parts it newly covers; then refresh the text block
+-- (plain background under the disc, safe to cover wholesale)
+local function diff_frame(old_age, new_age)
+  for _, row in ipairs(ROWS) do
+    local y, rx = CY + row[1], row[2]
+    local a1, b1 = lit_span(old_age, rx)
+    local a2, b2 = lit_span(new_age, rx)
+    if a1 ~= a2 or b1 ~= b2 then
+      if b1 > a1 then
+        if a2 > a1 then
+          c:line(a1, y, math.min(b1, a2), y, DARK, 2)
+        end
+        if b2 < b1 then
+          c:line(math.max(a1, b2), y, b1, y, DARK, 2)
+        end
+      end
+      if b2 > a2 then
+        if a1 > a2 then
+          c:line(a2, y, math.min(b2, a1), y, LIT, 2)
+        end
+        if b1 < b2 then
+          c:line(math.max(a2, b1), y, b2, y, LIT, 2)
+        end
+      end
+    end
   end
-  c:text(what .. " in " .. nxt .. (nxt == 1 and " day" or " days"),
-         176, 303, LAV, 14, "center")
-  c:text(WDAYS[d.wday] .. ", " .. MONTHS[d.month] .. " " .. d.day .. " " ..
-         d.year, 176, 322, 0x55566E, 14, "center")
-  if not time.synced() then
-    c:text("clock not synced yet", 176, 340, 0x55566E, 14, "center")
-  end
-  return name, illum
+  c:rect(0, 240, 352, 112, BG)
+  draw_texts(new_age)
 end
 
 local function play()
   anim_to = today_age()
   anim_t0 = time.now()
+  prev_age = nil
 end
 
 -- launcher icon: a crescent moon in a night sky
@@ -113,53 +170,35 @@ end
 
 ui.background(BG) -- the sky colour fills the whole round screen
 
--- the drawing surface is a 176x176 canvas shown at zoom 2,
--- so it fills the screen for a quarter of the memory of a
--- 352 canvas (62 KB instead of 242 KB); this proxy halves
--- every coordinate and size into canvas pixels
-local raw = ui.canvas{
-  w = 176, h = 176, zoom = 2, color = BG,
+-- the drawing surface: one native 352x352 canvas at zoom 1,
+-- in partial mode so sweep frames send only what they drew
+c = ui.canvas{
+  w = 352, h = 352, color = BG,
   on_touch = function(kind, x, y) if kind == "down" then play() end end,
 }
-local function wdt(w)
-  if not w then return w end
-  return math.max(1, math.floor(w / 2 + 0.5))
-end
-local function opts(o)
-  if o and o.width then
-    local n = {}
-    for k, v in pairs(o) do n[k] = v end
-    n.width = wdt(o.width)
-    return n
-  end
-  return o
-end
-c = {}
-function c:clear(col) raw:clear(col) end
-function c:circle(x, y, r, col, o)
-  raw:circle(x / 2, y / 2, r / 2, col, opts(o)) end
-function c:pixel(x, y, col) raw:pixel(x / 2, y / 2, col) end
-function c:line(x1, y1, x2, y2, col, w)
-  raw:line(x1 / 2, y1 / 2, x2 / 2, y2 / 2, col, wdt(w)) end
-function c:arc(x, y, r, a0, sweep, col, w)
-  raw:arc(x / 2, y / 2, r / 2, a0, sweep, col, wdt(w)) end
-function c:text(s, x, y, col, size, align)
-  raw:text(s, x / 2, y / 2, col, wdt(size), align) end
+c:partial(true)
 
 local function ease(p)
   if p < 0.5 then return 2 * p * p end
   return 1 - ((-2 * p + 2) ^ 2) / 2
 end
 
-ui.every(33, function()
+ui.every(20, function()
   if not anim_t0 then return end
   local p = (time.now() - anim_t0) / ANIM_LEN
   if p >= 1 then
     anim_t0 = nil
+    prev_age = nil
     local name, illum = render(anim_to)
     print("moon settled: " .. name .. ", " .. illum .. "% lit")
   else
-    render(anim_to * ease(p))
+    local age = anim_to * ease(p)
+    if prev_age then
+      diff_frame(prev_age, age)
+    else
+      render(age)
+    end
+    prev_age = age
   end
 end)
 
@@ -169,6 +208,7 @@ end)
 
 play()
 print("moon ready, transition playing")
-local gfx_used, gfx_avail = gfx.memory()
+local gfx_used, gfx_avail, gfx_largest = gfx.memory()
 print("moon gfx memory: used " .. tostring(gfx_used) ..
-      ", available " .. tostring(gfx_avail))
+      ", available " .. tostring(gfx_avail) ..
+      ", largest " .. tostring(gfx_largest))

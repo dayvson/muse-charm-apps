@@ -9,6 +9,11 @@ ESP32=${MUSE_ESP32_DIR:-$ROOT/muse-gadget-sdk/esp32}
 TMP=$(mktemp -d /tmp/gifavatar.XXXXXX)
 trap 'rm -rf "$TMP"' EXIT
 cd "$ESP32"
+# Frames in a flash partition (gif2pixel --external): the host build reads the .bin.
+if grep -q '^#define GIF_EXTERNAL 1' "$SRC"; then
+    export MUSE_PIXEL_BIN="${SRC%.c}.bin"
+    [ -f "$MUSE_PIXEL_BIN" ] || { echo "no $MUSE_PIXEL_BIN beside $SRC"; exit 1; }
+fi
 CC="cc -O1 -g -Wall -Werror -I components/muse tools/muse/anim.c $SRC -lm"
 echo "[1] cc -O1 -g -Wall -Werror (avatar.py's flags)"
 $CC -o "$TMP/anim"

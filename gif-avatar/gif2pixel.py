@@ -43,7 +43,9 @@ import collections
 import datetime
 import os
 import re
+import struct
 import sys
+import zlib
 
 from PIL import Image, ImageChops, ImageDraw
 
@@ -515,7 +517,7 @@ def c_float(v):
     return s + "0" if s.endswith(".") else s
 
 
-def emit_c(path, fields, palette, data, frames, clips):
+def emit_c(path, fields, palette, data, frames, clips, external=None):
     pal_lines = ["    " + " ".join("{ %d, %d, %d }," % c for c in palette[i:i + 6]) for i in range(0, len(palette), 6)]
     clip_lines, cliplist = [], []
     for s in STATES:
@@ -535,6 +537,13 @@ def emit_c(path, fields, palette, data, frames, clips):
         line += item + ", "
     cl.append(line.rstrip(", "))
     total = len(data) + len(palette) * 3 + len(frames) * 8 + len(STATES) * 12
+    crc = zlib.crc32(data) & 0xffffffff
+    if external:
+        # The frames go to the "avatar" partition: header (magic "MPX1", length,
+        # CRC-32, 0), then the data. The C checks the header matches.
+        with open(external, "wb") as f:
+            f.write(struct.pack("<4I", 0x3158504D, len(data), crc, 0) + bytes(data))
+        total -= len(data)
     rep = dict(fields)
     rep.update({
         "__DATE__": datetime.date.today().isoformat(),
@@ -546,7 +555,9 @@ def emit_c(path, fields, palette, data, frames, clips):
         "__PALN__": str(len(palette)),
         "__PALETTE__": "\n".join(pal_lines),
         "__DATALEN__": str(len(data)),
-        "__DATA__": "\n".join("    " + ",".join(f"0x{b:02x}" for b in data[i:i + 24]) + ","
+        "__EXTERNAL__": "1" if external else "0",
+        "__DATACRC__": f"0x{crc:08x}",
+        "__DATA__": "" if external else "\n".join("    " + ",".join(f"0x{b:02x}" for b in data[i:i + 24]) + ","
                               for i in range(0, len(data), 24)),
         "__NFRAMES__": str(len(frames)),
         "__FRAMES__": "\n".join(f"    {{ {o}, {ln}, {ms} }}," for o, ln, ms in frames),
@@ -633,6 +644,9 @@ def parse_args():
     g.add_argument("--max-frames", type=int, help="cap frames per clip (decimated evenly in time)")
     g.add_argument("--budget-kb", type=float, default=768, help="max frame data in KiB (default 768)")
     g.add_argument("--no-fit", action="store_true", help="don't lower the frame rate to fit the budget (just warn)")
+    g.add_argument("--external", metavar="BIN",
+                   help="frame data to BIN (for the board's \"avatar\" flash partition) instead of into the C: "
+                        "no PSRAM cost, so the budget can be the partition's size")
     g.add_argument("--encoding", choices=["auto", "raw", "rle"], default="auto",
                    help="auto: PackBits per frame where it's smaller")
     g.add_argument("--once", default="boot,off", help="states whose clip plays once (default boot,off)")
@@ -1011,7 +1025,7 @@ def main():
         "__ACCENTS__": "\n".join(f"    [MUSE_MODE_{m}] = 0x{accents[m]:06x}," for m in MODES),
         "__WORKINGACCENT__": f"0x{working_accent:06x}",
     }
-    total = emit_c(args.out, fields, full_pal, data, frames, clips)
+    total = emit_c(args.out, fields, full_pal, data, frames, clips, args.external)
 
     # ---- report
     log("")
@@ -1030,7 +1044,8 @@ def main():
         log(f"WARNING: frame data is over the {budget}-byte budget ({args.budget_kb:g} KiB)")
     else:
         log(f"Budget: {len(data)} / {budget} bytes ({100 * len(data) / budget:.0f}%)")
-    log(f"Wrote {args.out}")
+    log(f"Wrote {args.out}" + (f" and {args.external} ({len(data) + 16} bytes, for the avatar partition)"
+                                if args.external else ""))
 
     if args.dump:
         os.makedirs(args.dump, exist_ok=True)

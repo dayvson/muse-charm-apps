@@ -57,13 +57,25 @@ __PALETTE__
 enum { FX_LISTEN, FX_LISTEN_DIM, FX_SPEAK, FX_ERROR, FX_COUNT };
 #define FX_BASE (GIF_COLORS - FX_COUNT)
 
-/* All frames' 64x64 indices; a frame of exactly W * H bytes is raw. */
-static const uint8_t GIF_DATA[__DATALEN__] = {
+/* All frames' 64x64 indices; a frame of exactly W * H bytes is raw. With
+ * GIF_EXTERNAL they live in the "avatar" flash partition instead (written by
+ * scripts/04_flash_muse.sh from the .bin made alongside this file): a 16-byte
+ * header (magic, data length, CRC-32, 0), then the data. Each frame is read as
+ * it's shown, so the clips cost no RAM: with XIP from PSRAM, const data in the
+ * firmware costs its size in PSRAM. */
+#define GIF_EXTERNAL __EXTERNAL__
+#define GIF_DATALEN __DATALEN__u
+#define GIF_DATACRC __DATACRC__u
+#define GIF_MAGIC 0x3158504Du   /* "MPX1" */
+
+#if !GIF_EXTERNAL
+static const uint8_t GIF_DATA[GIF_DATALEN] = {
 __DATA__
 };
+#endif
 
 typedef struct {
-    uint32_t off;   /* into GIF_DATA */
+    uint32_t off;   /* into the frame data */
     uint16_t len;   /* bytes; W * H means raw, else PackBits */
     uint16_t ms;    /* how long it shows */
 } gif_frame_t;
@@ -168,11 +180,91 @@ static inline int iround(float v)
     return (int)floorf(v + 0.5f);
 }
 
+#if GIF_EXTERNAL
+#ifdef ESP_PLATFORM
+#include "esp_attr.h"
+#include "esp_log.h"
+#include "esp_partition.h"
+
+EXT_RAM_BSS_ATTR static uint8_t s_src[W * H];   /* the frame as stored */
+/* PSRAM too: internal RAM is what Muse's link needs. */
+EXT_RAM_BSS_ATTR static const esp_partition_t *s_part;
+EXT_RAM_BSS_ATTR static int s_part_ok;          /* 0 unchecked, 1 ok, -1 not usable */
+EXT_RAM_BSS_ATTR static uint32_t s_src_have;    /* which frame s_src holds: its offset + 1, 0 none */
+
+/* The partition, if it holds this build's frames (checked once, by header). */
+static bool part_ready(void)
+{
+    if (s_part_ok) return s_part_ok > 0;
+    s_part_ok = -1;
+    uint32_t hdr[4];
+    s_part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "avatar");
+    if (!s_part || s_part->size < 16 + GIF_DATALEN || esp_partition_read(s_part, 0, hdr, sizeof(hdr)) != ESP_OK) {
+        ESP_LOGE("muse_pixel", "no \"avatar\" partition for the avatar's frames");
+        return false;
+    }
+    if (hdr[0] != GIF_MAGIC || hdr[1] != GIF_DATALEN || hdr[2] != GIF_DATACRC) {
+        ESP_LOGE("muse_pixel", "the avatar partition holds other frames (%08x, %u bytes): flash this build's "
+                 "muse_pixel.bin (scripts/04_flash_muse.sh)", (unsigned)hdr[2], (unsigned)hdr[1]);
+        return false;
+    }
+    s_part_ok = 1;
+    return true;
+}
+
+/* A frame's stored bytes, read through the flash driver (so never during a
+ * flash write elsewhere), or NULL. The last one read is kept. */
+static const uint8_t *frame_src(const gif_frame_t *f)
+{
+    if (f->len > W * H || !part_ready()) return NULL;
+    if (f->off + 1 != s_src_have) {
+        if (esp_partition_read(s_part, 16 + f->off, s_src, f->len) != ESP_OK) {
+            s_src_have = 0;
+            return NULL;
+        }
+        s_src_have = f->off + 1;
+    }
+    return s_src;
+}
+#else
+#include <stdio.h>
+#include <stdlib.h>
+
+/* Host checks: the same bytes, from the file named by MUSE_PIXEL_BIN. */
+static uint8_t s_src[W * H];
+static FILE *s_bin;
+
+static const uint8_t *frame_src(const gif_frame_t *f)
+{
+    if (!s_bin) {
+        const char *path = getenv("MUSE_PIXEL_BIN");
+        uint32_t hdr[4];
+        s_bin = path ? fopen(path, "rb") : NULL;
+        if (!s_bin || fread(hdr, 4, 4, s_bin) != 4 || hdr[0] != GIF_MAGIC || hdr[1] != GIF_DATALEN ||
+            hdr[2] != GIF_DATACRC) {
+            fprintf(stderr, "muse_pixel: MUSE_PIXEL_BIN must name this avatar's .bin\n");
+            exit(1);
+        }
+    }
+    if (f->len > W * H || fseek(s_bin, 16 + (long)f->off, SEEK_SET) || fread(s_src, 1, f->len, s_bin) != f->len) {
+        return NULL;
+    }
+    return s_src;
+}
+#endif
+#else
+static const uint8_t *frame_src(const gif_frame_t *f) { return &GIF_DATA[f->off]; }
+#endif
+
 /* Decode a frame into s_fb. Bounded on both ends whatever the data says. */
 static void unpack(const gif_frame_t *f)
 {
-    const uint8_t *src = &GIF_DATA[f->off];
+    const uint8_t *src = frame_src(f);
     uint32_t len = f->len;
+    if (!src) {   /* frames missing: an empty stage rather than garbage */
+        memset(s_fb, 0, W * H);
+        return;
+    }
     if (len == W * H) {
         memcpy(s_fb, src, W * H);
         return;

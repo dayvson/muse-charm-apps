@@ -38,8 +38,11 @@ the firmware's size comes straight out of free PSRAM.
 With a 1 MB avatar and a 3.9 MB image, only about 590 KB of PSRAM was left at run
 time. What we did:
 
-- **Avatar trimmed to 512 KB** of frame data (`scripts/05_avatar.sh make
-  --budget-kb 512`), lowering frame rates rather than cutting clips.
+- **The avatar's frames moved out of the firmware**, into their own 4 MB `avatar`
+  flash partition, read one 64x64 frame at a time (a 4 KB buffer). At first we
+  trimmed them to 512 KB by lowering frame rates; now the clips play at their own
+  rate (Vela: about 3 MB of frames) and cost no PSRAM
+  ([avatar.md](avatar.md)).
 - **The watch dial is a 256-colour indexed image** (218 KB) that LVGL draws from flash
   row by row, instead of a 424 KB RGB565 copy in RAM.
 - **The stocks chart is an 8-bit coverage map** tinted with the trend colour: 45 KB
@@ -56,7 +59,7 @@ time. What we did:
   canvases and the native apps never take the last 512 KB.
 - **LVGL allocates from PSRAM** (`muse_lv_mem.c` in the SDK).
 
-The firmware is now about 3.4 MB, in a 4 MB app slot.
+The firmware is now about 2.9 MB (with your own avatar, whose frames live in their partition), in a 4 MB app slot.
 
 ## The command list is capped
 

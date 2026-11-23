@@ -8,8 +8,12 @@ it. You choose what it is:
 - **Your avatar:** your Muse's real avatar animation (the one in the Muse app),
   made from the video clips Muse keeps of it, so the gadget looks like *your* Muse.
 
-Either way it's compiled into the firmware. Switching takes a rebuild and a
-reflash, and you can always switch back.
+The default is compiled into the firmware. Yours is a small player in the
+firmware plus its frames in their own 4 MB flash partition (`avatar`), read one
+frame at a time. The firmware runs from PSRAM (XIP), so frames inside it would cost
+their size in PSRAM; in the partition they cost nothing, so they can play at the
+clips' own frame rate. Switching takes a rebuild and a reflash, and you can always
+switch back.
 
 ```sh
 scripts/05_avatar.sh status         # which avatar the next build uses
@@ -68,16 +72,22 @@ This:
 1. Extracts the media files (only those, by name) into `avatar-clips/<id>-<time>/`.
 2. Converts them with [`gif-avatar/gif2pixel.py`](../gif-avatar/gif2pixel.py): finds
    and removes the stage colour, crops, fits each clip to 64x64, builds one shared
-   255-colour palette, and packs the frames (PackBits where it's smaller). If the
-   frames are over the budget (512 KB by default), it lowers every clip's frame rate
-   until they fit.
+   255-colour palette, and packs the frames (PackBits where it's smaller). The frames
+   go to `avatars/<id>.bin` for the avatar partition; if they're over the budget
+   (the partition, 4 MB), it lowers every clip's frame rate until they fit. Clip
+   rates come from `gif-avatar/clips.json`; `--fps 24` plays every clip at 24 fps
+   (Muse's clips are 24 fps; the screen redraws every 40 ms, so 25 is the most it
+   shows). `--in-firmware` keeps the frames in the C instead (512 KB budget, in PSRAM).
 3. Compiles and runs the result on the Mac with sanitizers
    ([`gif-avatar/host_check.sh`](../gif-avatar/host_check.sh)), the same checks the
    SDK's avatar tool uses.
-4. Saves `avatars/<id>.c`, plus 5x preview GIFs of every animation in
-   `avatars/<id>-preview/`, and makes it the avatar for the next build.
+4. Saves `avatars/<id>.c` and `avatars/<id>.bin`, plus 5x preview GIFs of every
+   animation in `avatars/<id>-preview/`, and makes it the avatar for the next build.
 
-Look at the previews, then build and reflash.
+Look at the previews, then build and reflash. `scripts/04_flash_muse.sh` writes the
+frames to the avatar partition when they changed since its last flash (`--avatar`
+forces it). If the partition holds other frames, the board logs
+`the avatar partition holds other frames` and shows an empty stage until you flash.
 
 ### Which clip plays when
 
@@ -97,9 +107,10 @@ Look at the previews, then build and reflash.
 - **Per-clip framing and frame rate:** [`gif-avatar/clips.json`](../gif-avatar/clips.json)
   (`crop`: `full`, `square`, `top-square`, `auto` or `X,Y,W,H`; `zoom`, `anchor`, `fps`,
   `range`).
-- **Size vs smoothness:** `--budget-kb 768` gives smoother animation, `--budget-kb 384`
-  smaller firmware. Every KB of avatar also costs a KB of PSRAM at run time
-  ([memory.md](memory.md)), so 512 is a good balance with the apps.
+- **Smoothness:** `--fps 24` plays every clip at the rate Muse recorded it. In the
+  avatar partition the budget is the partition (4 MB), so frame rates only drop if
+  the clips don't fit there. With `--in-firmware`, every KB of frames costs a KB of
+  PSRAM at run time ([memory.md](memory.md)), so keep `--budget-kb` around 512.
 - **Anything else:** options after `--` go to `gif2pixel.py`, for example
   `-- --crop auto --margin 2` or `-- --speak frames`. Run
   `toolchain/tools-venv/bin/python gif-avatar/gif2pixel.py --help` for all of them.

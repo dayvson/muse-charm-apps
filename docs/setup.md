@@ -103,10 +103,10 @@ scripts/02_build.sh
 This merges [`config/muse-charm.sdkconfig`](../config/muse-charm.sdkconfig) into the
 SDK's settings for the 1.75C (`board.sh build s3`) and builds into
 `muse-gadget-sdk/esp32/build-muse-waveshare-s3-175c/`. That overlay turns on the
-apps (`CONFIG_MUSE_APPS`), the custom partition table with the `luapps` storage
-partition, the device guide, and the memory settings described in
+apps (`CONFIG_MUSE_APPS`), the custom partition table (with `luapps`, the Lua
+apps' storage, and `avatar`, your avatar's frames), the device guide, and the memory settings described in
 [memory.md](memory.md). The first build takes 5 to 15 minutes. It ends by listing
-the effective settings and the size of `muse-gadget.bin` (about 3.4 MB).
+the effective settings and the size of `muse-gadget.bin` (about 3 MB).
 
 ## 6. Flash
 
@@ -122,6 +122,11 @@ From then on, reflash new builds without erasing. This keeps pairing and Wi-Fi:
 ```sh
 scripts/04_flash_muse.sh --reflash
 ```
+
+With your own avatar, its frames go to the `avatar` partition in the same flash,
+but only when they changed since the last one (`--avatar` rewrites them anyway).
+If the board shows an empty stage instead of your avatar, the partition holds
+other frames: flash with `--avatar`.
 
 ## 7. Store your SDK token
 

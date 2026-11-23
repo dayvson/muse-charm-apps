@@ -9,8 +9,12 @@
 #                                               avatar clips and attach them in the Muse app;
 #                                               --call-clips asks for speaking/listening clips;
 #                                               --print only prints the prompt to paste yourself
-#   scripts/05_avatar.sh make ZIP|DIR... [--id ID] [--name TEXT] [--budget-kb N] [-- gif2pixel options]
-#                                               turn the clips into avatars/ID.c and use it
+#   scripts/05_avatar.sh make ZIP|DIR... [--id ID] [--name TEXT] [--fps N] [--budget-kb N] [--in-firmware]
+#                                   [-- gif2pixel options]
+#                                               turn the clips into avatars/ID.c (+ ID.bin, the frames,
+#                                               for the board's avatar flash partition) and use it.
+#                                               --fps: every clip at this rate (default: gif-avatar/clips.json);
+#                                               --in-firmware: frames inside the C (costs PSRAM; 512 KB budget)
 #   scripts/05_avatar.sh use ID|FILE            switch to a saved avatar (avatars/ID.c) or any muse_pixel.c
 #   scripts/05_avatar.sh list                   saved avatars
 #
@@ -24,11 +28,15 @@ CLIPS="$ROOT/avatar-clips"                    # extracted clips (not committed)
 TOOLS="$ROOT/gif-avatar"
 SDK_AVATAR_DIR="$ROOT/muse-gadget-sdk/esp32/components/muse/avatar"
 ACTIVE="$SDK_AVATAR_DIR/muse_pixel.c"         # the SDK builds this in place of its default when it exists
+ACTIVE_BIN="$SDK_AVATAR_DIR/muse_pixel.bin"   # its frames, for the "avatar" partition (04_flash_muse.sh writes it)
+PART_KB=4096                                  # the avatar partition (config/partitions-muse-charm.csv)
 
 usage() { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-1}"; }
 die() { echo "05_avatar: $*" >&2; exit 1; }
 sha() { shasum -a 256 "$1" | cut -c1-64; }
 next_steps() { echo; echo "Next: scripts/02_build.sh, then scripts/04_flash_muse.sh --reflash"; }
+
+is_external() { grep -q '^#define GIF_EXTERNAL 1' "$1"; }
 
 saved_name() {  # the avatars/*.c with the same content as $1, if any
   local f
@@ -42,6 +50,13 @@ cmd_status() {
   if [ -f "$ACTIVE" ]; then
     local n; n="$(saved_name "$ACTIVE")"
     echo "Next build uses: your avatar${n:+ \"$n\" (avatars/$n.c)} ($(du -k "$ACTIVE" | cut -f1) KB source)"
+    if is_external "$ACTIVE"; then
+      if [ -f "$ACTIVE_BIN" ]; then
+        echo "  frames in the avatar flash partition: $(( $(wc -c < "$ACTIVE_BIN") / 1024 )) KB (04_flash_muse.sh writes them)"
+      else
+        echo "  WARNING: its frames (muse_pixel.bin) are missing: run 'use' again"
+      fi
+    fi
     grep -m1 -E '^ \* .*: a clip-backed avatar' "$ACTIVE" | sed 's/^ \* /  /' || true
   else
     echo "Next build uses: the SDK's default avatar"
@@ -53,6 +68,7 @@ cmd_default() {
     [ -n "$(saved_name "$ACTIVE")" ] || { mkdir -p "$AVATARS"; cp "$ACTIVE" "$AVATARS/unsaved-$(date +%Y%m%d-%H%M%S).c"; echo "Kept a copy of the current one in avatars/."; }
     mv "$ACTIVE" "$ACTIVE.prev"
   fi
+  [ -f "$ACTIVE_BIN" ] && mv "$ACTIVE_BIN" "$ACTIVE_BIN.prev"
   echo "The next build uses the SDK's default avatar."
   next_steps
 }
@@ -63,9 +79,15 @@ cmd_use() {
   [ -f "$src" ] || src="$AVATARS/$1.c"
   [ -f "$src" ] || die "no avatar '$1' (see: scripts/05_avatar.sh list)"
   grep -q 'muse_pixel_render' "$src" || die "$src doesn't look like a muse_pixel.c"
+  local bin="${src%.c}.bin"
+  if is_external "$src"; then
+    [ -f "$bin" ] || die "$src keeps its frames in ${bin##*/}, which is missing"
+  fi
   mkdir -p "$SDK_AVATAR_DIR"
   [ -f "$ACTIVE" ] && cp "$ACTIVE" "$ACTIVE.prev"
+  [ -f "$ACTIVE_BIN" ] && mv "$ACTIVE_BIN" "$ACTIVE_BIN.prev"
   cp "$src" "$ACTIVE"
+  if is_external "$src"; then cp "$bin" "$ACTIVE_BIN"; fi
   echo "The next build uses $src."
   next_steps
 }
@@ -108,12 +130,14 @@ EOF
 }
 
 cmd_make() {
-  local id=my-avatar name="Muse avatar" budget=512 srcs=() extra=()
+  local id=my-avatar name="Muse avatar" budget= fps= infw= srcs=() extra=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --id) id="$2"; shift ;;
       --name) name="$2"; shift ;;
       --budget-kb) budget="$2"; shift ;;
+      --fps) fps="$2"; shift ;;
+      --in-firmware) infw=1 ;;
       --) shift; extra=("$@"); break ;;
       -h|--help) usage 0 ;;
       *) srcs+=("$1") ;;
@@ -163,16 +187,34 @@ EOF
 
   mkdir -p "$AVATARS"
   local out="$AVATARS/$id.c" tmp="$AVATARS/.$id.tmp.c" prev="$AVATARS/$id-preview"
-  echo "==> Converting (frame data budget ${budget} KB)"
+  local cfg="$TOOLS/clips.json" ext=()
+  if [ -n "$fps" ]; then   # every clip at --fps: the per-clip rates in clips.json would win otherwise
+    cfg="$dir/clips-fps.json"
+    "$PY" -I -c 'import json, sys
+c = json.load(open(sys.argv[1]))
+for v in c.values():
+    if isinstance(v, dict): v["fps"] = float(sys.argv[3])
+json.dump(c, open(sys.argv[2], "w"))' "$TOOLS/clips.json" "$cfg" "$fps"
+    ext+=(--fps "$fps")
+  fi
+  if [ -n "$infw" ]; then
+    budget="${budget:-512}"
+  else
+    budget="${budget:-$((PART_KB - 4))}"
+    ext+=(--external "${tmp%.c}.bin")
+  fi
+  echo "==> Converting (frame data budget ${budget} KB, $([ -n "$infw" ] && echo "in the firmware" || echo "in the avatar flash partition"))"
   "$PY" -I "$TOOLS/gif2pixel.py" "$dir" -o "$tmp" \
       --name "$name" \
-      --crop full --margin 0 --clip-config "$TOOLS/clips.json" \
+      --crop full --margin 0 --clip-config "$cfg" \
       --speak bounce --speak-bounce 1 --speak-pulse 0.12 \
-      --budget-kb "$budget" --dump "$prev" ${extra[@]+"${extra[@]}"}
+      --budget-kb "$budget" --dump "$prev" ${ext[@]+"${ext[@]}"} ${extra[@]+"${extra[@]}"}
   echo "==> Checking the generated C on this Mac"
   "$TOOLS/host_check.sh" "$tmp" | tail -3
   mv "$tmp" "$out"
-  echo "Saved avatars/$id.c ($(du -k "$out" | cut -f1) KB source); previews (5x GIFs) in avatars/$id-preview/"
+  rm -f "${out%.c}.bin"
+  [ -n "$infw" ] || mv "${tmp%.c}.bin" "${out%.c}.bin"
+  echo "Saved avatars/$id.c ($(du -k "$out" | cut -f1) KB source)$([ -n "$infw" ] || echo " and avatars/$id.bin ($(( $(wc -c < "${out%.c}.bin") / 1024 )) KB of frames)"); previews (5x GIFs) in avatars/$id-preview/"
   cmd_use "$out"
 }
 

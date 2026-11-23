@@ -450,35 +450,58 @@ local function draw_car()
 end
 
 -- cover the car's previous spots with background, then
--- redraw the track segments (both passes, plus the start
--- dot) that the covers touched
+-- redraw the track the covers touched. The repair test is
+-- the exact distance from each covered spot to each
+-- segment (not a midpoint guess): a segment is redrawn
+-- when a cover disc actually reaches its ribbon, and a
+-- joint disc is redrawn at any vertex a cover reached,
+-- so the ribbon stays continuous where segments join
 local function cover_car()
   if not (path and prev_car) then return end
   for _, s in ipairs(prev_car) do
     c:circle(s[1], s[2], s[3] + 4, BG, {fill = true})
   end
-  local function near(x, y)
-    for _, s in ipairs(prev_car) do
-      local dx, dy = x - s[1], y - s[2]
-      if dx * dx + dy * dy < 484 then return true end
+  local function seg_dist(px, py, a, b)
+    local dx, dy = b[1] - a[1], b[2] - a[2]
+    local l2 = dx * dx + dy * dy
+    local t = 0
+    if l2 > 0 then
+      t = ((px - a[1]) * dx + (py - a[2]) * dy) / l2
+      if t < 0 then t = 0 elseif t > 1 then t = 1 end
     end
-    return false
+    local ex, ey = a[1] + t * dx - px, a[2] + t * dy - py
+    return math.sqrt(ex * ex + ey * ey)
   end
   for pass = 1, 2 do
     local col = (pass == 1) and ROAD or PALE
     local w = (pass == 1) and 11 or 2
+    local jr = (pass == 1) and 6 or 1
     for i = 1, #path.pts do
       local a = path.pts[i]
       local b = path.pts[i % #path.pts + 1]
-      if near((a[1] + b[1]) / 2, (a[2] + b[2]) / 2)
-         or near(a[1], a[2]) or near(b[1], b[2]) then
-        c:line(a[1], a[2], b[1], b[2], col, w)
+      local hit = false
+      for _, s in ipairs(prev_car) do
+        if seg_dist(s[1], s[2], a, b) < s[3] + 4 + 8 then
+          hit = true break
+        end
+      end
+      if hit then c:line(a[1], a[2], b[1], b[2], col, w) end
+      for _, s in ipairs(prev_car) do
+        local ddx, ddy = a[1] - s[1], a[2] - s[2]
+        if ddx * ddx + ddy * ddy < (s[3] + 12) * (s[3] + 12) then
+          c:circle(a[1], a[2], jr, col, {fill = true})
+          break
+        end
       end
     end
   end
-  if near(path.pts[1][1], path.pts[1][2]) then
-    c:circle(path.pts[1][1], path.pts[1][2], 4, 0xFFFFFF,
-             {fill = true})
+  local sx, sy = path.pts[1][1], path.pts[1][2]
+  for _, s in ipairs(prev_car) do
+    local ddx, ddy = sx - s[1], sy - s[2]
+    if ddx * ddx + ddy * ddy < (s[3] + 12) * (s[3] + 12) then
+      c:circle(sx, sy, 4, 0xFFFFFF, {fill = true})
+      break
+    end
   end
   prev_car = nil
 end
@@ -495,10 +518,17 @@ local function draw_outline(cid)
   for pass = 1, 2 do
     local col = (pass == 1) and ROAD or PALE
     local wdt = (pass == 1) and 11 or 2
+    local jr = (pass == 1) and 6 or 1
     for i = 1, #path.pts do
       local a = path.pts[i]
       local b = path.pts[i % #path.pts + 1]
       c:line(a[1], a[2], b[1], b[2], col, wdt)
+    end
+    -- a joint disc at every vertex, so the ribbon is
+    -- continuous where segments meet at an angle
+    for i = 1, #path.pts do
+      local a = path.pts[i]
+      c:circle(a[1], a[2], jr, col, {fill = true})
     end
   end
   c:circle(path.pts[1][1], path.pts[1][2], 4, 0xFFFFFF,

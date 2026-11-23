@@ -21,14 +21,20 @@ changes (the countdown text, a ring segment, fresh data),
 and on every other tick only the car moves: its old spots
 are covered, the track under them is repaired, and the car
 is drawn at its new position, advanced by elapsed time so
-the lap stays 4.5 seconds at any frame rate. The 48 ring
+the lap stays 4.5 seconds at any frame rate. The repair
+redraws a track segment whenever a cover disc reaches its
+ribbon, measured by the exact distance from the disc centre
+to the segment (not a midpoint guess), and a joint disc is
+drawn at every vertex, in the full draw and in repairs, so
+the ribbon reads as one continuous road where the segments
+meet instead of a chain of separate strokes. The 48 ring
 segment positions are computed once at start-up instead of
 on every repaint. The loop runs every 33 ms and measures
-about 30 fps with roughly 11 KB sent and 1.4 ms of frame
-time per frame; on the earlier firmware, where partial
-never really took effect, the same build sent the whole
-424 KB canvas per frame and the flush alone held it to
-20 fps at 46 ms per frame.
+about 30 fps with roughly 10 to 11 KB sent and 1.3 to 1.4
+ms of frame time per frame; on the earlier firmware, where
+partial never really took effect, the same build sent the
+whole 424 KB canvas per frame and the flush alone held it
+to 20 fps at 46 ms per frame.
 
 ## The four screens
 

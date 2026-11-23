@@ -45,6 +45,7 @@ the source and a README:
 | [**Converter**](apps/fx/) | USD, BRL, EUR, GBP and RUB with either side switchable, a keypad for the amount, and live rates from free keyless sources, cached for offline use. |
 | [**F1**](apps/f1/) | Formula 1: the next race with a car lapping a drawn circuit and a countdown ring at the edge, the weekend schedule, the last podium and the championship top 3. |
 | [**Weather**](apps/weather/) | A living sky for Miami, New York, Rio de Janeiro or San Francisco: an animated sun, moon, stars, clouds, rain or snow, a big temperature and the next three hours, from Open-Meteo. |
+| [**Lab**](apps/lab/) | A test bench for the new firmware APIs: a roller page picker, device.info with a live mic bar, motion.read values, a muse.ask button and a 1-minute alarm test. |
 
 **Your own avatar, or the default one.** The board can show the SDK's default
 character, or your Muse's real avatar animation made from the clips Muse

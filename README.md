@@ -1,138 +1,56 @@
 # muse-charm-apps
 
-Firmware and apps for the **Muse Charm**: a Waveshare ESP32-S3-Touch-AMOLED-1.75C
-(a round 466x466 touch screen with a microphone and speaker) running Muse, Meta's
-personal AI agent, through the open-source
-[Muse Gadget SDK](https://github.com/facebookincubator/muse-gadget-sdk).
+Personalized apps for the Muse Charm connected device, built one at a
+time and committed here as they grow.
 
-The board is a thin client: Muse runs in the cloud. You call it with a tap, send
-voice notes with a hold, and it shows your Muse's own avatar. This repository
-adds apps beside Muse on the same screen, so swiping sideways moves between them.
+The Charm's screen is round (466x466), so every app here designs for
+the circle: the important content lives in the middle, and the rim is
+free for progress rings and other edge displays.
 
-```
-  Wind  |  Stocks  |  Watch  |  Muse  |  Apps  |  Settings
-  <---- native apps (C/LVGL) ----     Lua apps by Muse
-```
+## Apps
 
-## What we built
+- [Timer](apps/timer/) — a countdown timer with three preset buttons,
+  a ring around the rim that is eaten away as time passes, and colours
+  that move from green to yellow to red at the end.
 
-**Three native apps**, compiled into the firmware. Muse controls each of them
-with its own commands:
+- [Paddle Ball](apps/paddle/) — an original brick-breaking game on a
+  canvas: drag to move the paddle, tap to launch, clear 35 bricks,
+  with sound effects and a stored best score.
 
-| | |
-|---|---|
-| **Watch** | A dual-time pocket watch. The main hands show *local* time (where you are) and a copper skeleton hand shows *work* time. Muse moves the local zone when you travel (`watch.set_zone`, `watch.swap`, `watch.get`). |
-| **Stocks** | META, SHOP and SPY: price, change, and a chart over 1D, 1W, 1M, 1Y or 5Y, from Yahoo Finance's keyless chart API (`stocks.show`, `stocks.get`). |
-| **Wind** | A kite forecast in knots: now, today, tomorrow and the week, with the best session window. It covers two home spots plus any place Muse sets (`wind.set_spot`, `wind.show`, `wind.get`). |
+- [Moon Phase](apps/moon/) — a picture of today's moon drawn on a
+  canvas: the phase computed from the date, with the phase name,
+  percent lit, moon age and the next full or new moon.
 
-| Watch | Stocks | Wind | The launcher |
-|---|---|---|---|
-| ![Watch](firmware/preview/watch-1009.png) | ![Stocks](firmware/preview/stocks-META-1W.png) | ![Wind](firmware/preview/wind-crandon-today.png) | ![Launcher](firmware/preview/launcher-6-p1.png) |
+- [Horoscope](apps/horoscope/) — a zodiac wheel for the round
+  screen: swipe and the wheel turns your sign to the top, with a
+  medallion and the day's message in the middle.
 
-**An app launcher for Lua apps.** Muse writes an app in Lua and installs it over
-its link to the board with `luapp.install`. The board compiles, saves and opens
-it at once, with no firmware build and no flashing. Apps get widgets (rollers,
-sliders, switches, lists, scrolling areas), animation, touch and swipes, timers,
-HTTP and JSON, per-app storage and files, PNG and JPEG images, pixel-art sprites,
-a drawing canvas for games (timers down to 16 ms, and frames that send the
-screen only what changed), a 4-channel synth, the battery, the
-microphone level and the motion sensor, alarms that wake the board, and
-`muse.ask` to put a question to Muse from inside an app. Muse can take a
-screenshot of what its app draws, and measure its speed. Up to 9 apps, 64 KB of
-source each, run one at a time in a sandbox on their own task.
+- [Converter](apps/fx/) — USD, BRL, EUR, GBP and RUB with each
+  side switchable, a keypad for the amount, and live rates from
+  free keyless sources, cached for offline use.
 
-**Apps by Muse.** These Lua apps were written by Muse and deployed to the board
-through the launcher, with no firmware change. Each folder in [`apps/`](apps/) has
-the source and a README:
+- [F1](apps/f1/) — Formula 1: the next race with a lapping
+  car on a drawn circuit outline and a countdown ring at the
+  edge of the screen, the weekend schedule, the last race's
+  podium and the championship top 3, from a free keyless API.
 
-| | |
-|---|---|
-| [**Timer**](apps/timer/) | A countdown timer with plus and minus buttons and a ring around the rim that is eaten away as time passes, turning from green to yellow to red, with an alarm tune at zero. |
-| [**Paddle Ball**](apps/paddle/) | An original brick-breaking game on a canvas: drag to move the paddle, tap to launch, clear 35 bricks, with sound effects and a stored best score. |
-| [**Moon Phase**](apps/moon/) | Today's moon drawn on a canvas: the phase computed from the date, with the phase name, percent lit, moon age and the next full or new moon. |
-| [**Horoscope**](apps/horoscope/) | A zodiac wheel for the round screen: swipe and the wheel turns your sign to the top, with a medallion and the day's message in the middle. |
-| [**Converter**](apps/fx/) | USD, BRL, EUR, GBP and RUB with either side switchable, a keypad for the amount, and live rates from free keyless sources, cached for offline use. |
-| [**F1**](apps/f1/) | Formula 1: the next race with a car lapping a drawn circuit and a countdown ring at the edge, the weekend schedule, the last podium and the championship top 3. |
-| [**Weather**](apps/weather/) | A living sky for Miami, New York, Rio de Janeiro or San Francisco: an animated sun, moon, stars, clouds, rain or snow, a big temperature and the next three hours, from Open-Meteo. |
-| [**Lab**](apps/lab/) | A test bench for the new firmware APIs: a roller page picker, device.info with a live mic bar, motion.read values, a muse.ask button and a 1-minute alarm test. |
+- [Weather](apps/weather/) — a living sky for one city at a
+  time (Miami, New York, Rio de Janeiro, San Francisco; tap
+  the city name to switch): a gradient sky with an animated
+  sun, moon, stars, clouds, rain or snow, a big temperature
+  and a glass panel with the next three hours, from Open-Meteo.
 
-| Timer | Paddle Ball | Moon Phase | Horoscope |
-|---|---|---|---|
-| ![Timer](docs/images/apps/timer.png) | ![Paddle Ball](docs/images/apps/paddle.png) | ![Moon Phase](docs/images/apps/moon.png) | ![Horoscope](docs/images/apps/horoscope.png) |
-| **Converter** | **F1** | **Weather** | **The launcher** |
-| ![Converter](docs/images/apps/fx.png) | ![F1](docs/images/apps/f1.png) | ![Weather](docs/images/apps/weather.png) | ![The Apps launcher with Muse's apps](docs/images/apps/launcher.png) |
+- [Spotify](apps/spotify/) — a Spotify remote in Spotify's
+  own colours: the playing track with its album art, a
+  progress bar with the current time and duration, Previous /
+  Play-Pause / Next controls, and a Release Radar discovery
+  screen. The gadget asks Muse, and Muse drives the Spotify
+  connector.
 
-<sub>Screenshots taken on the board with `scripts/07_screenshots.sh`.</sub>
+## How an app runs
 
-**Your own avatar, or the default one.** The board can show the SDK's default
-character, or your Muse's real avatar animation made from the clips Muse
-exports ([docs/avatar.md](docs/avatar.md)). One command switches between them.
-
-| Default avatar | Your own: Vela, made from its clips |
-|---|---|
-| ![The SDK's default avatar](docs/images/avatar-default.png) | ![Vela, a Muse avatar made from its clips](docs/images/avatar-vela.png) |
-
-<sub>Both are rendered on the Mac with the firmware's own avatar renderer (`tools/muse/make_gifs.py`), showing an idle frame.</sub>
-
-## Quick start
-
-You need the board, a USB-C cable, a Mac (the scripts are written for macOS), the
-Muse app on your phone with Developer mode on, and an
-[SDK token](https://gadgets.muse.ai/settings/sdk-tokens).
-
-```sh
-git clone https://github.com/dayvson/muse-charm-apps.git muse-charm && cd muse-charm
-scripts/00_setup.sh                 # SDK + patches, ESP-IDF v6.0.3, Python tools (all inside this folder)
-scripts/01_backup_factory.sh        # full backup of the factory firmware: do this first
-scripts/05_avatar.sh default        # or make your own avatar: docs/avatar.md
-scripts/02_build.sh                 # build the firmware
-scripts/04_flash_muse.sh            # first time: erase and flash
-scripts/03_set_token.sh             # store your SDK token on the board, then pair in the Muse app
-```
-
-Then teach Muse to write apps: send it [`muse-prompts/lua-apps.md`](muse-prompts/lua-apps.md)
-once, and ask for an app. To have Muse commit its apps to your fork, also send
-[`muse-prompts/publish-apps.md`](muse-prompts/publish-apps.md).
-
-**The full walkthrough is in [docs/setup.md](docs/setup.md).** Read it before
-flashing.
-
-## Documentation
-
-| | |
-|---|---|
-| [docs/setup.md](docs/setup.md) | Setting up the ESP32-S3, step by step, with troubleshooting |
-| [docs/native-apps.md](docs/native-apps.md) | Watch, Stocks and Wind: what they show, Muse's commands, data sources, how to customise |
-| [docs/launcher.md](docs/launcher.md) | The Lua app launcher: how Muse writes, installs and manages apps without a firmware update |
-| [docs/avatar.md](docs/avatar.md) | The default avatar, or your Muse's own avatar from its clips |
-| [docs/memory.md](docs/memory.md) | Engineering notes: the board's memory limits, and why the patches and settings exist |
-| [apps/](apps/) | The Lua apps Muse built, one folder each |
-
-## Repository layout
-
-```
-apps/<name>/         Lua apps built by Muse (source and a README each)
-firmware/            the native apps, the launcher and the Lua runtime (linked into the SDK
-                     as components/muse/apps); Lua 5.4.7 in firmware/lua (unmodified, MIT)
-  tests/ tools/      host tests; asset generators and preview renderers
-  preview/           rendered previews of the native apps
-config/              build settings overlay, partition table, the device guide Muse reads
-patches/             changes to the SDK (applied by scripts/00_setup.sh)
-scripts/             setup, build, flash, token, avatar, logs, screenshots, link check
-gif-avatar/          the clip-to-avatar converter and the prompts that ask Muse for clips
-muse-prompts/        instructions we give Muse: lua-apps.md (writing apps), publish-apps.md
-                     (committing them here), and notes we sent about firmware updates
-docs/images/         the screenshots in this README
-```
-
-These are created locally and never committed: `muse-gadget-sdk/`, `toolchain/`,
-`backups/`, `logs/`, `avatars/` and `avatar-clips/`.
-
-## Status and caveats
-
-This is a hobby project on community hardware. As the SDK puts it, tinkering may
-brick boards or void warranties, so proceed at your own risk. It's built and
-tested on one board, against SDK commit `b11908c` and ESP-IDF v6.0.3. The Watch,
-Stocks and Wind defaults (Miami, San Francisco, Key Biscayne kite spots, the
-three tickers) are ours; [docs/native-apps.md](docs/native-apps.md) says where
-to change them.
+Each app is a Lua program that runs on the device itself, in the
+Apps by Muse launcher. Muse installs it with `luapp.install`; the
+device compiles, saves and opens it, and it stays in the launcher
+until removed. Apps draw with the gadget's own widgets, keep state
+with its store, and exit on a long-press.

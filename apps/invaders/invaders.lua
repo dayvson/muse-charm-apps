@@ -100,10 +100,10 @@ end
 local c = nil   -- set below, the screens draw on it
 
 local function draw_hud_full()
-  c:text("SCORE " .. score, 14, 8, WHITE, 15, "left")
-  c:text("WAVE " .. wave, 200, 8, GREY, 15, "center")
+  c:text("SCORE " .. score, 56, 26, WHITE, 15, "left")
+  c:text("WAVE " .. wave, 200, 26, GREY, 15, "center")
   for i = 0, lives - 1 do
-    c:rect(382 - i * 22, 11, 16, 8, GREEN, { fill = true })
+    c:rect(322 - i * 22, 30, 16, 8, GREEN, { fill = true })
   end
   drawn_score, drawn_wave, drawn_lives = score, wave, lives
 end
@@ -130,7 +130,7 @@ end
 
 local function draw_ready()
   c:rect(0, 0, 400, 400, BG, { fill = true })
-  c:text("INVADERS", 200, 52, WHITE, 38, "center")
+  c:text("INVADERS", 200, 60, WHITE, 32, "center")
   local rows = { 1, 2, 3 }
   for i, row in ipairs(rows) do
     local y = 118 + (i - 1) * 44
@@ -333,6 +333,7 @@ end
 
 -- ---------- per-frame paint (partial, cover-based) ----------
 local function draw()
+  local hud_dirty = false
   -- wave banner expiry first: its cover can erase
   -- invaders behind it, so force those to repaint below
   if banner_t <= 0 and banner_shown then
@@ -380,6 +381,7 @@ local function draw()
   -- bullets
   for i = #bullets, 1, -1 do
     local b = bullets[i]
+    if b.py and b.py < 56 then hud_dirty = true end
     if b.dead then
       if b.px then
         c:rect(b.px - 3, b.py - 2, 7, 14, BG, { fill = true })
@@ -409,21 +411,22 @@ local function draw()
       m.px, m.py = m.x, m.y
     end
   end
-  -- HUD, only the strip that changed
-  if drawn_score ~= score then
-    c:rect(8, 4, 150, 28, BG, { fill = true })
-    c:text("SCORE " .. score, 14, 8, WHITE, 15, "left")
+  -- HUD, only the strip that changed, or that a bullet
+  -- crossed on its way out
+  if hud_dirty or drawn_score ~= score then
+    c:rect(50, 22, 140, 26, BG, { fill = true })
+    c:text("SCORE " .. score, 56, 26, WHITE, 15, "left")
     drawn_score = score
   end
-  if drawn_wave ~= wave then
-    c:rect(150, 4, 100, 28, BG, { fill = true })
-    c:text("WAVE " .. wave, 200, 8, GREY, 15, "center")
+  if hud_dirty or drawn_wave ~= wave then
+    c:rect(150, 22, 100, 26, BG, { fill = true })
+    c:text("WAVE " .. wave, 200, 26, GREY, 15, "center")
     drawn_wave = wave
   end
-  if drawn_lives ~= lives then
-    c:rect(300, 4, 96, 28, BG, { fill = true })
+  if hud_dirty or drawn_lives ~= lives then
+    c:rect(250, 22, 100, 26, BG, { fill = true })
     for i = 0, lives - 1 do
-      c:rect(382 - i * 22, 11, 16, 8, GREEN, { fill = true })
+      c:rect(322 - i * 22, 30, 16, 8, GREEN, { fill = true })
     end
     drawn_lives = lives
   end

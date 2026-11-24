@@ -23,8 +23,16 @@ turns toward your finger, thrusts with real inertia
 and fires for as long as you hold; release and it
 drifts. Everything wraps around the edges. Three
 lives, a respawn that waits for the centre to clear
-and blinks while it is invulnerable, and one more huge
-rock per wave. The best score is kept in the app store.
+and blinks while it is invulnerable, and a best score
+kept in the app store.
+
+Difficulty is progressive. Wave 1 is just two huge
+rocks drifting at three-quarter speed; each new wave
+adds a huge rock (up to seven), waves from the third
+add a few already-split larges, the drift speed climbs
+wave over wave, and the chance of a three-way split
+grows with it. The HUD sits inset from the top of the
+canvas, inside the round screen's visible chord there.
 
 Rendering follows the house pattern for games: one
 400x400 canvas at zoom 1 in partial mode. Everything

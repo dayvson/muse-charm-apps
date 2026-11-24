@@ -102,13 +102,14 @@ local touch_x, touch_y = 200, 120
 local fire_cd, boom_t, banner_t = 0, 0, 0
 local banner_shown = false
 local flick = 0
+local wave_spd = 1   -- rock speed scale, grows with the wave
 
 local drawn_score, drawn_wave, drawn_lives = -1, -1, -1
 
 local function spawn_rock(x, y, tier, pvx, pvy)
   local t = TIERS[tier]
   local a = math.random() * math.pi * 2
-  local s = t.spd * (0.75 + math.random() * 0.5)
+  local s = t.spd * wave_spd * (0.75 + math.random() * 0.5)
   rocks[#rocks + 1] = {
     x = x, y = y, tier = tier, r = t.r,
     vx = (pvx or 0) + math.cos(a) * s,
@@ -121,8 +122,14 @@ end
 
 local function spawn_wave()
   rocks = {}
-  local n = 3 + wave
-  for _ = 1, n do
+  -- progressive difficulty: wave 1 is two slow huge rocks;
+  -- each wave adds a huge (to seven), later waves add a
+  -- few already-split larges, and everything drifts a
+  -- little faster wave over wave
+  wave_spd = math.min(0.75 + 0.07 * (wave - 1), 1.3)
+  local n_huge = math.min(1 + wave, 7)
+  local n_large = math.min(math.max(wave - 2, 0), 3)
+  local function edge_pos()
     local x, y
     repeat
       local edge = math.random(0, 3)
@@ -131,7 +138,15 @@ local function spawn_wave()
       elseif edge == 2 then x, y = 30, math.random(0, 400)
       else x, y = 370, math.random(0, 400) end
     until (x - 200) ^ 2 + (y - 200) ^ 2 > 120 * 120
+    return x, y
+  end
+  for _ = 1, n_huge do
+    local x, y = edge_pos()
     spawn_rock(x, y, 1)
+  end
+  for _ = 1, n_large do
+    local x, y = edge_pos()
+    spawn_rock(x, y, 2)
   end
   banner_t = 1.1
 end
@@ -158,10 +173,10 @@ end
 local c = nil
 
 local function draw_hud_full()
-  c:text("SCORE " .. score, 14, 8, WHITE, 15, "left")
-  c:text("WAVE " .. wave, 200, 8, GREY, 15, "center")
+  c:text("SCORE " .. score, 56, 26, WHITE, 15, "left")
+  c:text("WAVE " .. wave, 200, 26, GREY, 15, "center")
   for i = 0, lives - 1 do
-    draw_ship(c, 378 - i * 26, 19, -math.pi / 2)
+    draw_ship(c, 336 - i * 26, 33, -math.pi / 2)
   end
   drawn_score, drawn_wave, drawn_lives = score, wave, lives
 end
@@ -181,7 +196,7 @@ end
 
 local function draw_ready()
   c:rect(0, 0, 400, 400, BG, { fill = true })
-  c:text("ASTEROIDS", 200, 48, WHITE, 36, "center")
+  c:text("ASTEROIDS", 200, 58, WHITE, 30, "center")
   local demo = { x = 118, y = 148, r = 34, ang = 0.5,
                  verts = make_verts() }
   draw_rock(c, demo)
@@ -249,7 +264,8 @@ local function break_rock(rk)
                { volume = rk.tier >= 3 and 40 or 50 })
   if rk.tier < 4 then
     local n = 2
-    if rk.tier <= 2 and math.random() < 0.3 then n = 3 end
+    local triple = math.min(0.15 + 0.05 * (wave - 1), 0.35)
+    if rk.tier <= 2 and math.random() < triple then n = 3 end
     while #rocks + n - 1 > MAX_ROCKS and n > 0 do n = n - 1 end
     for _ = 1, n do
       spawn_rock(rk.x, rk.y, rk.tier + 1, rk.vx * 0.5, rk.vy * 0.5)
@@ -391,7 +407,7 @@ local function draw()
   for _, g in ipairs(ghosts) do
     c:rect(g.x - g.r - 4, g.y - g.r - 4, g.r * 2 + 8,
            g.r * 2 + 8, BG, { fill = true })
-    if g.y - g.r - 4 < 36 then hud_dirty = true end
+    if g.y - g.r - 4 < 56 then hud_dirty = true end
   end
   ghosts = {}
   -- rocks
@@ -399,18 +415,18 @@ local function draw()
     if rk.px then
       c:rect(rk.px - rk.r - 4, rk.py - rk.r - 4,
              rk.r * 2 + 8, rk.r * 2 + 8, BG, { fill = true })
-      if rk.py - rk.r - 4 < 36 then hud_dirty = true end
+      if rk.py - rk.r - 4 < 56 then hud_dirty = true end
     end
     draw_rock(c, rk)
     rk.px, rk.py = rk.x, rk.y
-    if rk.y - rk.r - 4 < 36 then hud_dirty = true end
+    if rk.y - rk.r - 4 < 56 then hud_dirty = true end
   end
   -- bullets
   for i = #bullets, 1, -1 do
     local b = bullets[i]
     if b.px then
       c:rect(b.px - 3, b.py - 3, 7, 7, BG, { fill = true })
-      if b.py < 40 then hud_dirty = true end
+      if b.py < 58 then hud_dirty = true end
     end
     if b.dead then
       table.remove(bullets, i)
@@ -450,19 +466,19 @@ local function draw()
   end
   -- HUD strips that changed, or that a rock crossed
   if hud_dirty or drawn_score ~= score then
-    c:rect(8, 4, 150, 28, BG, { fill = true })
-    c:text("SCORE " .. score, 14, 8, WHITE, 15, "left")
+    c:rect(50, 22, 140, 26, BG, { fill = true })
+    c:text("SCORE " .. score, 56, 26, WHITE, 15, "left")
     drawn_score = score
   end
   if hud_dirty or drawn_wave ~= wave then
-    c:rect(150, 4, 100, 28, BG, { fill = true })
-    c:text("WAVE " .. wave, 200, 8, GREY, 15, "center")
+    c:rect(150, 22, 100, 26, BG, { fill = true })
+    c:text("WAVE " .. wave, 200, 26, GREY, 15, "center")
     drawn_wave = wave
   end
   if hud_dirty or drawn_lives ~= lives then
-    c:rect(296, 4, 100, 28, BG, { fill = true })
+    c:rect(236, 22, 114, 26, BG, { fill = true })
     for i = 0, lives - 1 do
-      draw_ship(c, 378 - i * 26, 19, -math.pi / 2)
+      draw_ship(c, 336 - i * 26, 33, -math.pi / 2)
     end
     drawn_lives = lives
   end

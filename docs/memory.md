@@ -11,21 +11,25 @@ After a voice call, the largest free block of internal RAM can drop to about 7 K
 with only about 22 KB free in total. Any task asking for an 8 KB internal stack then
 fails, often silently. So:
 
-- **`CONFIG_HOMEHUB_SETUP_TASKS_IN_PSRAM=y`:** pairing, Wi-Fi scan and provisioning
-  tasks get PSRAM stacks. Without it, provisioning fails with
-  `error_operation_in_progress`.
+- **`CONFIG_HOMEHUB_SETUP_TASKS_IN_PSRAM=y`:** pairing, Wi-Fi scan, provisioning and
+  Muse VM lookup tasks get PSRAM stacks. Without it, provisioning fails with
+  `error_operation_in_progress`. The SDK's 1.75C profile now sets it too (#440).
 - **`CONFIG_HOMEHUB_TUNNEL` off:** frees about 60 KB of internal RAM. With the tunnel
   up, the voice session's VM lookup couldn't start, and the board showed "CAN'T REACH
   MUSE". The cost is that Muse can't reach home-network devices through this gadget.
-- **[`patches/0001`](../patches/0001-muse_vm-task-stack-via-helper_task.patch):**
-  creates the `muse_vm` lookup task with the SDK's `helper_task_create`, which can put
-  its stack in PSRAM, instead of a fixed 8 KB internal stack.
+- **The `muse_vm` lookup task** is created with `helper_task_create`, which can put
+  its stack in PSRAM. That was our patch 0001; the SDK now does it itself (#397).
+- **Since SDK `e17081a`** (Nov 2026) the 1.75C also gets: allocations of 1 KB and up
+  try PSRAM first (`CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=1024`, #440), BLE starts only
+  when phone setup needs it (#364), two unused drivers are left out (#415, ~6 KB of
+  internal RAM), and a DMA reserve that ordinary `malloc()` can't eat into (#491).
+  Upstream measured the 1.75C's largest free internal block going from 30 to 58 KB.
 - **Every task the apps create** (the network fetches, the Lua host, the stop
   watchdog) has its stack in PSRAM.
 - **Fetches check first:** [`apps_net.c`](../firmware/apps_net.c) skips a fetch if
   internal RAM is under 16 KB free or the largest block is under 4 KB. mbedTLS
   allocates from PSRAM in this configuration, and lwIP prefers it.
-- **Small allocations** (under 4 KB) still go to internal RAM, so the parsers avoid
+- **Small allocations** (under 1 KB) still go to internal RAM, so the parsers avoid
   building JSON trees (no cJSON for the Stocks and Wind responses).
 
 ## Every byte of firmware costs PSRAM
@@ -74,10 +78,12 @@ the device guide (up to 4096 bytes) for what the apps are for, and `luapp.admin`
 
 The SDK holds back `link.register` until a margin of DMA-capable internal RAM is
 free (`NOISE_TX_DMA_RESERVE_BYTES`, 16 KB). With live voice on, this board idles
-at 13-17 KB, so the list of commands was sometimes never sent and no Muse command
-reached the board. Patch 0002 lowers the margin to 12 KB when the apps are on and
-the home-network tunnel is off, and `noise_control.cpp` logs `link.register held
-for DMA headroom` if it still waits over 10 s. `scripts/08_link_check.sh` checks
+at 13-17 KB on the older SDK, so the list of commands was sometimes never sent and
+no Muse command reached the board. We first lowered the margin to 12 KB in patch
+0002; since moving to SDK `e17081a` we keep the SDK's 16 KB (upstream rejects a
+lower margin as a risk to the link's encryption buffers) and rely on its RAM
+changes above. The SDK logs `link.register held for N s: DMA-capable RAM is short`
+every 5 s while it waits. `scripts/08_link_check.sh` checks
 this end to end: it runs a command over the serial console, then watches while you
 ask Muse for one.
 

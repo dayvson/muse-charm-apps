@@ -27,7 +27,7 @@ through the commands it lists.
   LE devices: one at a time, and only devices the user means.
 - `device.health` reports battery and charging on boards with a battery.
 
-## Watch (one swipe right of Muse)
+## Watch (two swipes right of Muse, past the latest reply)
 
 Dual time. **Local** (Meta-blue hour hand, date, LOCAL window) is where the user
 is: they live in Miami, so MIA at home; when they travel set it to where they

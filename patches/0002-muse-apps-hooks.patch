@@ -1,11 +1,11 @@
 diff --git a/esp32/components/muse/CMakeLists.txt b/esp32/components/muse/CMakeLists.txt
-index 5327b7f..5860bb9 100644
+index 895c9c4..c81a8e8 100644
 --- a/esp32/components/muse/CMakeLists.txt
 +++ b/esp32/components/muse/CMakeLists.txt
-@@ -45,6 +45,20 @@ if(CONFIG_MUSE_ENABLED)
+@@ -68,6 +68,20 @@ if(CONFIG_MUSE_ENABLED)
          list(APPEND embed "eink/fonts/montserrat.ttf" "eink/fonts/symbols.ttf" "eink/fonts/unscii.ttf")
      else()
-         list(APPEND srcs "muse_ui.c" "muse_menu.c" "muse_settings_ui.c" "muse_keypad.c" "muse_lv_mem.c")
+         list(APPEND srcs "muse_ui.c" "muse_options_ui.c" "muse_menu.c" "muse_settings_ui.c" "muse_keypad.c" "muse_lv_mem.c")
 +        if(CONFIG_MUSE_APPS)
 +            # muse-charm: apps one swipe right of Muse (apps/ links to muse-charm/firmware).
 +            list(APPEND srcs "apps/muse_apps.c" "apps/watch_ui.c" "apps/watch_core.c" "apps/watch_dial.c"
@@ -22,10 +22,10 @@ index 5327b7f..5860bb9 100644
 +        endif()
      endif()
      if(CONFIG_MUSE_HATCH)
-         list(APPEND srcs "muse_chat.c" "muse_account_api.c" "muse_chat_session.cpp")
-@@ -217,9 +231,14 @@ if(IDF_TARGET STREQUAL "esp32p4")
-     list(APPEND muse_priv_requires esp_driver_jpeg)
+         list(APPEND srcs "muse_chat.c" "muse_account_api.c" "muse_chat_session.cpp" "muse_options_json.c")
+@@ -290,9 +304,14 @@ if(IDF_TARGET STREQUAL "esp32s31")
  endif()
+ list(APPEND muse_priv_requires muse_wakeword)   # registers empty unless MUSE_WAKEWORD_ENABLE
  
 +set(muse_incs ".")
 +if(CONFIG_MUSE_APPS AND NOT CONFIG_MUSE_UI_FREEINK)
@@ -40,16 +40,19 @@ index 5327b7f..5860bb9 100644
      LDFRAGMENTS "linker.lf"   # CONFIG_MUSE_STATIC_BUFFERS_IN_PSRAM
      WHOLE_ARCHIVE   # muse_lv_mem.c provides symbols only LVGL references
 diff --git a/esp32/components/muse/Kconfig b/esp32/components/muse/Kconfig
-index ebc9a8d..f90f1a4 100644
+index 3b7168e..d18a04f 100644
 --- a/esp32/components/muse/Kconfig
 +++ b/esp32/components/muse/Kconfig
-@@ -655,4 +655,14 @@ endif
+@@ -895,4 +895,17 @@ endif
              about half a second at 2 Mb/s, enough for a keyframe and the
              frames behind it.
  
 +    config MUSE_APPS
 +        bool "Apps beside Muse (dual-time watch)"
 +        depends on MUSE_ENABLED && !MUSE_UI_FREEINK
++        # Not with the SDK's WebAssembly apps: both name their header muse_apps.h
++        # and define muse_apps_console/_command/_handles.
++        depends on !MUSE_WASM_APPS
 +        default n
 +        help
 +            muse-charm: tiles one swipe right of Muse that Muse controls with
@@ -59,20 +62,20 @@ index ebc9a8d..f90f1a4 100644
 +
  endmenu
 diff --git a/esp32/components/muse/muse_chat_session.cpp b/esp32/components/muse/muse_chat_session.cpp
-index 2b29407..d9b64a6 100644
+index 760555d..29b6d46 100644
 --- a/esp32/components/muse/muse_chat_session.cpp
 +++ b/esp32/components/muse/muse_chat_session.cpp
-@@ -78,6 +78,9 @@ extern "C" {
- }
+@@ -84,6 +84,9 @@ extern "C" {
  #include "muse_chat_priv.h"
+ #include "muse_options.h"
  #include "sdkconfig.h"
 +#if CONFIG_MUSE_APPS
-+#include "muse_apps.h"   // muse-charm: clock from the VM's Date
++#include "apps/muse_apps.h"   // muse-charm: clock from the VM's Date
 +#endif
  #if CONFIG_MUSE_REALTIME_VOICE
  #include "muse_voice_call_priv.h"
  #endif
-@@ -2187,6 +2190,15 @@ static bool on_frame(const DecodedServiceFrame &f)
+@@ -2494,6 +2497,15 @@ static bool on_frame(const DecodedServiceFrame &f)
      switch (f.kind) {
      case ServiceFrameKind::Response:
          s->status = f.response.status;
@@ -89,7 +92,7 @@ index 2b29407..d9b64a6 100644
              return on_http_error(s, f.response);
          }
 diff --git a/esp32/components/muse/muse_chat_text.c b/esp32/components/muse/muse_chat_text.c
-index dcfe8bb..ad88619 100644
+index 993fbb6..8f6a878 100644
 --- a/esp32/components/muse/muse_chat_text.c
 +++ b/esp32/components/muse/muse_chat_text.c
 @@ -26,6 +26,10 @@
@@ -98,12 +101,12 @@ index dcfe8bb..ad88619 100644
  #include "muse_text.h"
 +#include "sdkconfig.h"
 +#if CONFIG_MUSE_APPS
-+#include "muse_apps.h"
++#include "apps/muse_apps.h"
 +#endif
  
  #define CAPTION_CHARS 32   /* what fits across the round screen */
  #define CONSOLE_LINE 400   /* one "@chat" line */
-@@ -329,6 +333,9 @@ static size_t escape_some(const char **src, char *out, size_t cap)
+@@ -370,6 +374,9 @@ static size_t escape_some(const char **src, char *out, size_t cap)
  /* Each line goes out in one write, so other tasks' log lines land between lines, not inside them. */
  void muse_hatch_console(const char *type, const char *text, const char *fields, ...)
  {
@@ -114,20 +117,20 @@ index dcfe8bb..ad88619 100644
      char line[CONSOLE_LINE];
      do {
 diff --git a/esp32/components/muse/muse_input.c b/esp32/components/muse/muse_input.c
-index 50147a5..228004f 100644
+index 06de147..0565203 100644
 --- a/esp32/components/muse/muse_input.c
 +++ b/esp32/components/muse/muse_input.c
-@@ -59,6 +59,9 @@
+@@ -75,6 +75,9 @@
  #if CONFIG_MUSE_WATCHER_CAMERA
  #include "boards/watcher_camera.h"
  #endif
 +#if CONFIG_MUSE_APPS
-+#include "muse_apps.h"
++#include "apps/muse_apps.h"
 +#endif
  
  static atomic_uint s_touch_talk_events;
  
-@@ -274,6 +277,10 @@ static void aux_button(bool pressed, bool edge)
+@@ -312,6 +315,10 @@ static void aux_button(bool pressed, bool edge)
              } else {
                  muse_state_set_caption("%s", saved_caption);
              }
@@ -138,35 +141,77 @@ index 50147a5..228004f 100644
          } else {
              sleep_in = DOUBLE_TICKS;
          }
+diff --git a/esp32/components/muse/muse_latest_reply.c b/esp32/components/muse/muse_latest_reply.c
+index 5632343..ff089d6 100644
+--- a/esp32/components/muse/muse_latest_reply.c
++++ b/esp32/components/muse/muse_latest_reply.c
+@@ -164,10 +164,10 @@ static void new_reply_cb(lv_event_t *event)
+     lv_anim_start(&animation);
+ }
+ 
+-void muse_latest_reply_build(lv_obj_t *tileview, muse_latest_reply_font_t font_for)
++void muse_latest_reply_build(lv_obj_t *tileview, int col, muse_latest_reply_font_t font_for)
+ {
+     s_font_for = font_for;
+-    s_tile = lv_tileview_add_tile(tileview, 0, 0, LV_DIR_RIGHT);
++    s_tile = lv_tileview_add_tile(tileview, col, 0, col ? LV_DIR_HOR : LV_DIR_RIGHT);
+     muse_theme_set_style_bg_color(s_tile, lv_color_black(), 0);
+     lv_obj_set_style_bg_opa(s_tile, LV_OPA_COVER, 0);
+     lv_obj_set_scrollbar_mode(s_tile, LV_SCROLLBAR_MODE_OFF);
+diff --git a/esp32/components/muse/muse_latest_reply.h b/esp32/components/muse/muse_latest_reply.h
+index 7a3212c..d6a4e88 100644
+--- a/esp32/components/muse/muse_latest_reply.h
++++ b/esp32/components/muse/muse_latest_reply.h
+@@ -21,7 +21,8 @@
+ 
+ /* LVGL-task-only view of the latest locally received answer. */
+ typedef const lv_font_t *(*muse_latest_reply_font_t)(const char *text);
+-void muse_latest_reply_build(lv_obj_t *tileview, muse_latest_reply_font_t font_for);
++/* Its tile in tileview column `col` (muse-charm: apps may sit left of it). */
++void muse_latest_reply_build(lv_obj_t *tileview, int col, muse_latest_reply_font_t font_for);
+ lv_obj_t *muse_latest_reply_tile(void);
+ void muse_latest_reply_set_visible(bool visible);
+ void muse_latest_reply_tick(void);
 diff --git a/esp32/components/muse/muse_ui.c b/esp32/components/muse/muse_ui.c
-index c483049..782a8c6 100644
+index 6354a07..6ec78c9 100644
 --- a/esp32/components/muse/muse_ui.c
 +++ b/esp32/components/muse/muse_ui.c
-@@ -47,6 +47,10 @@
- #include "muse_text.h"
+@@ -69,6 +69,10 @@
  #include "muse_wifi.h"
  #include "muse_voice.h"
+ #include "muse_volume_swipe.h"
 +#if CONFIG_MUSE_APPS
-+#include "muse_apps.h"
-+#include "muse_apps_ui.h"
++#include "apps/muse_apps.h"
++#include "apps/muse_apps_ui.h"
 +#endif
  #if CONFIG_MUSE_VIDEO
  #include "muse_video.h"
  #endif
-@@ -139,7 +143,19 @@ bool muse_ui_face_active(void)
-     return s_face_active;
+@@ -189,12 +193,28 @@ bool muse_ui_volume_swiping(void)
+     return s_volume_swiping;
  }
  static lv_obj_t *s_settings;
--static lv_obj_t *s_dots[2];
++/* Left to right: with CONFIG_MUSE_APPS (muse-charm) the app tiles left of Muse,
++ * the latest reply (CONFIG_MUSE_LATEST_REPLY), Muse, the app tiles right of it,
++ * then settings: Wind | Stocks | Watch | Reply | Muse | Apps | Settings. */
 +#if CONFIG_MUSE_APPS
-+/* muse-charm: Wind | Stocks | Watch | Muse | Apps | Settings. */
 +static lv_obj_t *s_apps[MUSE_APPS_COUNT];
-+#define FACE_COL MUSE_APPS_LEFT
-+#define SETTINGS_COL (MUSE_APPS_COUNT + 1)
++#define APPS_LEFT MUSE_APPS_LEFT
++#define APPS_RIGHT (MUSE_APPS_COUNT - MUSE_APPS_LEFT)
 +#else
-+#define FACE_COL 0
-+#define SETTINGS_COL 1
++#define APPS_LEFT 0
++#define APPS_RIGHT 0
 +#endif
+ #if CONFIG_MUSE_LATEST_REPLY
+-#define PAGE_DOTS 3
++#define REPLY_COL APPS_LEFT
++#define FACE_COL (APPS_LEFT + 1)
+ #else
+-#define PAGE_DOTS 2
++#define FACE_COL APPS_LEFT
+ #endif
+-static lv_obj_t *s_dots[PAGE_DOTS];
++#define SETTINGS_COL (FACE_COL + APPS_RIGHT + 1)
 +#define PAGE_COUNT (SETTINGS_COL + 1)
 +/* The tileview's scroll position with Muse fully on screen. */
 +#define FACE_SCROLL_X (FACE_COL * s_w)
@@ -174,35 +219,52 @@ index c483049..782a8c6 100644
  static lv_obj_t *s_wifi_icon;
  static lv_obj_t *s_ble_icon;
  static lv_obj_t *s_cover;
-@@ -1181,12 +1197,18 @@ static void build_screen(void)
+@@ -1502,17 +1522,21 @@ static void build_screen(void)
  
      lv_obj_t *face = scr;
      if (muse_board->touch) {
 -        /* Swipe left from Muse for settings. */
 +        /* Swipe left from Muse for settings (and, with apps, right for them). */
          s_tv = lv_tileview_create(scr);
-         lv_obj_set_style_bg_color(s_tv, lv_color_black(), 0);
+         muse_theme_set_style_bg_color(s_tv, lv_color_black(), 0);
          lv_obj_set_style_bg_opa(s_tv, LV_OPA_COVER, 0);
          lv_obj_set_scrollbar_mode(s_tv, LV_SCROLLBAR_MODE_OFF);
--        s_face = lv_tileview_add_tile(s_tv, 0, 0, LV_DIR_RIGHT);
 +#if CONFIG_MUSE_APPS
-+        for (int i = 0; i < MUSE_APPS_COUNT; i++) {   /* the first MUSE_APPS_LEFT left of Muse */
-+            int col = i < MUSE_APPS_LEFT ? i : i + 1;
++        for (int i = 0; i < MUSE_APPS_COUNT; i++) {   /* the first APPS_LEFT left of Muse */
++            int col = i < APPS_LEFT ? i : FACE_COL + 1 + (i - APPS_LEFT);
 +            s_apps[i] = lv_tileview_add_tile(s_tv, col, 0, col ? LV_DIR_LEFT | LV_DIR_RIGHT : LV_DIR_RIGHT);
 +        }
 +#endif
-+        s_face = lv_tileview_add_tile(s_tv, FACE_COL, 0, FACE_COL ? LV_DIR_LEFT | LV_DIR_RIGHT : LV_DIR_RIGHT);
+ #if CONFIG_MUSE_LATEST_REPLY
+-        muse_latest_reply_build(s_tv, caption_font_for);
+-        s_face = lv_tileview_add_tile(s_tv, 1, 0, LV_DIR_HOR);
+-#else
+-        s_face = lv_tileview_add_tile(s_tv, 0, 0, LV_DIR_RIGHT);
++        muse_latest_reply_build(s_tv, REPLY_COL, caption_font_for);
+ #endif
++        s_face = lv_tileview_add_tile(s_tv, FACE_COL, 0, FACE_COL ? LV_DIR_HOR : LV_DIR_RIGHT);
          /* It never scrolls, but LVGL would size its scrollbars from all its
           * children every time it draws any part of it. */
          lv_obj_set_scrollbar_mode(s_face, LV_SCROLLBAR_MODE_OFF);
-@@ -1194,9 +1216,14 @@ static void build_screen(void)
+@@ -1520,13 +1544,7 @@ static void build_screen(void)
           * shows as a different-coloured square around the character. */
-         lv_obj_set_style_bg_color(s_face, lv_color_black(), 0);
+         muse_theme_set_style_bg_color(s_face, lv_color_black(), 0);
          lv_obj_set_style_bg_opa(s_face, LV_OPA_COVER, 0);
--        s_settings = lv_tileview_add_tile(s_tv, 1, 0, LV_DIR_LEFT);
+-        s_settings = lv_tileview_add_tile(s_tv,
+-#if CONFIG_MUSE_LATEST_REPLY
+-            2,
+-#else
+-            1,
+-#endif
+-            0, LV_DIR_LEFT);
 +        s_settings = lv_tileview_add_tile(s_tv, SETTINGS_COL, 0, LV_DIR_LEFT);
+         lv_tileview_set_tile(s_tv, s_face, LV_ANIM_OFF);
          lv_obj_add_event_cb(s_tv, tile_changed_cb, LV_EVENT_VALUE_CHANGED, NULL);
          face = s_face;
+@@ -1536,6 +1554,11 @@ static void build_screen(void)
+             lv_obj_remove_flag(face, LV_OBJ_FLAG_SCROLLABLE);
+             lv_obj_add_event_cb(face, on_volume_swipe, LV_EVENT_ALL, NULL);
+         }
 +#if CONFIG_MUSE_APPS
 +        muse_apps_build(s_tv, s_apps, s_face, s_w, s_h);
 +        lv_obj_update_layout(s_tv);
@@ -211,34 +273,37 @@ index c483049..782a8c6 100644
      }
  
      if (!s_small && muse_board->no_ring) {
-@@ -1508,7 +1535,7 @@ static void update_control_hints(muse_mode_t mode)
+@@ -1862,7 +1885,11 @@ static void update_control_hints(muse_mode_t mode)
  {
      if (!s_ptt_hint) return;
      /* Don't obscure settings rows/keyboards with floating physical icons. */
--    bool settings = s_tv && lv_tileview_get_tile_active(s_tv) == s_settings;
-+    bool settings = s_tv && lv_tileview_get_tile_active(s_tv) != s_face;   /* or an app */
++#if CONFIG_MUSE_APPS
++    bool settings = s_tv && lv_tileview_get_tile_active(s_tv) != s_face;   /* or an app (muse-charm) */
++#else
+     bool settings = s_tv && lv_tileview_get_tile_active(s_tv) == s_settings;
++#endif
      lv_obj_set_flag(s_ptt_hint, LV_OBJ_FLAG_HIDDEN, settings);
      lv_obj_set_flag(s_spk_hint, LV_OBJ_FLAG_HIDDEN, settings);
      lv_obj_set_flag(s_pwr_hint, LV_OBJ_FLAG_HIDDEN, settings);
-@@ -1530,7 +1557,7 @@ static void build_overlays(void)
-     lv_obj_t *scr = lv_screen_active();
+@@ -1916,7 +1943,7 @@ static void build_overlays(void)
+     }
  
      /* Page dots. */
--    for (int i = 0; i < 2 && s_tv; i++) {
+-    for (int i = 0; i < PAGE_DOTS && s_tv; i++) {
 +    for (int i = 0; i < PAGE_COUNT && s_tv; i++) {
          lv_obj_t *d = lv_obj_create(scr);
          lv_obj_remove_style_all(d);
          lv_obj_set_size(d, 8, 8);
-@@ -1538,7 +1565,7 @@ static void build_overlays(void)
+@@ -1924,7 +1951,7 @@ static void build_overlays(void)
          lv_obj_set_style_bg_opa(d, LV_OPA_COVER, 0);
-         lv_obj_set_style_bg_color(d, lv_color_hex(COLOR_DOT_OFF), 0);
+         muse_theme_set_style_bg_color(d, lv_color_hex(COLOR_DOT_OFF), 0);
          lv_obj_remove_flag(d, LV_OBJ_FLAG_CLICKABLE);
--        lv_obj_align(d, LV_ALIGN_BOTTOM_MID, i ? 8 : -8, -14);
-+        lv_obj_align(d, LV_ALIGN_BOTTOM_MID, 16 * i - 8 * (PAGE_COUNT - 1), -14);
+-        lv_obj_align(d, LV_ALIGN_BOTTOM_MID, (2 * i - (PAGE_DOTS - 1)) * 8, -14);
++        lv_obj_align(d, LV_ALIGN_BOTTOM_MID, (2 * i - (PAGE_COUNT - 1)) * 8, -14);
          s_dots[i] = d;
      }
  
-@@ -1677,6 +1704,9 @@ static bool update_sleep(void)
+@@ -2093,6 +2120,9 @@ static bool update_sleep(void)
                  target = s_preview_brightness;
              }
          }
@@ -248,42 +313,59 @@ index c483049..782a8c6 100644
          apply_brightness(target);
      }
      return s_dark;
-@@ -1709,19 +1739,24 @@ static void update_chrome(float now)
+@@ -2128,29 +2158,27 @@ static void update_chrome(float now)
      s_next_settings_tick = now + SETTINGS_TICK_S;
  
      if (s_tv) {
 -        int page = lv_tileview_get_tile_active(s_tv) == s_settings;
 +        lv_obj_t *active = lv_tileview_get_tile_active(s_tv);
 +        int page = active == s_settings;
-+        int index = page ? SETTINGS_COL : active == s_face ? FACE_COL : -1;   /* -1: an app tile */
          bool subpage = muse_settings_ui_in_subpage();
          s_swipe_enabled = !page || !subpage;
          update_tileview_swipe();
--        int shown = page * 2 + subpage;
+-        bool hide_dots = page && subpage;
++        int index = page ? SETTINGS_COL : active == s_face ? FACE_COL : -1;   /* -1: an app tile */
+ #if CONFIG_MUSE_LATEST_REPLY
+-        int selected = page ? 2 : lv_tileview_get_tile_active(s_tv) == s_face ? 1 : 0;
+-#else
+-        int selected = page;
++        if (active == muse_latest_reply_tile()) index = REPLY_COL;
+ #endif
+-        int shown = selected * 2 + subpage;
 +        int shown = index * 2 + subpage;
          if (shown != s_shown_page) {
--            for (int i = 0; i < 2; i++) {
--                lv_obj_set_style_bg_color(s_dots[i], lv_color_hex(i == page ? COLOR_ACCENT : COLOR_DOT_OFF), 0);
--                lv_obj_set_flag(s_dots[i], LV_OBJ_FLAG_HIDDEN, page && subpage);
+-            for (int i = 0; i < PAGE_DOTS; i++) {
+-                muse_theme_set_style_bg_color(s_dots[i], lv_color_hex(i == selected ? COLOR_ACCENT : COLOR_DOT_OFF), 0);
+-                lv_obj_set_flag(s_dots[i], LV_OBJ_FLAG_HIDDEN, hide_dots);
 +            /* Hidden over a settings subpage, and over the app tiles (the watch's
 +             * minute track, the Apps launcher's own page dots). */
 +            bool hide = (page && subpage) || index < 0;
 +            for (int i = 0; i < PAGE_COUNT; i++) {
-+                lv_obj_set_style_bg_color(s_dots[i], lv_color_hex(i == index ? COLOR_ACCENT : COLOR_DOT_OFF), 0);
++                muse_theme_set_style_bg_color(s_dots[i], lv_color_hex(i == index ? COLOR_ACCENT : COLOR_DOT_OFF), 0);
 +                lv_obj_set_flag(s_dots[i], LV_OBJ_FLAG_HIDDEN, hide);
              }
              s_shown_page = shown;
          }
+-#if CONFIG_MUSE_LATEST_REPLY
+-        muse_settings_ui_tick(page);
+-#else
 -        muse_settings_ui_tick(lv_obj_get_scroll_x(s_tv) > 0);
+-#endif
 +        muse_settings_ui_tick(lv_obj_get_scroll_x(s_tv) > (SETTINGS_COL - 1) * s_w);   /* settings showing */
      }
  
      /* Joining, the icon blinks: the compact layout has no state label. */
-@@ -2203,9 +2238,9 @@ static void frame_tick(lv_timer_t *timer)
+@@ -2685,15 +2713,9 @@ static void frame_tick(lv_timer_t *timer)
      if (s_image_dsc.data) {
          return;   /* the image covers the face */
      }
--    if (s_tv && lv_obj_get_scroll_x(s_tv) != 0) {
+-    if (s_tv && lv_obj_get_scroll_x(s_tv) !=
+-#if CONFIG_MUSE_LATEST_REPLY
+-        s_w
+-#else
+-        0
+-#endif
+-    ) {
 -        /* Off screen, or sliding to or from settings: hold still so the
 -         * slide gets the whole frame time. */
 +    if (s_tv && lv_obj_get_scroll_x(s_tv) != FACE_SCROLL_X) {
@@ -293,20 +375,20 @@ index c483049..782a8c6 100644
      }
  
 diff --git a/esp32/components/muse/muse_voice.c b/esp32/components/muse/muse_voice.c
-index 26307ed..21df6c6 100644
+index b0d9713..f941668 100644
 --- a/esp32/components/muse/muse_voice.c
 +++ b/esp32/components/muse/muse_voice.c
-@@ -38,6 +38,9 @@
- #include "muse_settings.h"
- #include "muse_state.h"
- #include "muse_wifi.h"
+@@ -46,6 +46,9 @@
+ #if CONFIG_MUSE_VOICE_SOFTWARE_AEC
+ #include "muse_aec.h"
+ #endif
 +#if CONFIG_MUSE_APPS
-+#include "muse_apps.h"   /* muse-charm: Lua apps' sound */
++#include "apps/muse_apps.h"   /* muse-charm: Lua apps' sound */
 +#endif
  #if CONFIG_MUSE_REALTIME_VOICE
  #include "muse_voice_call.h"
  #include "muse_voice_call_core.h"
-@@ -1377,8 +1380,28 @@ static void voice_task(void *arg)
+@@ -1795,8 +1798,28 @@ static void voice_task(void *arg)
                  }
                  continue;
              }
@@ -336,22 +418,22 @@ index 26307ed..21df6c6 100644
                  continue;
              }
 diff --git a/esp32/main/app.c b/esp32/main/app.c
-index 1786289..22606f6 100644
+index faa701a..bd26af3 100644
 --- a/esp32/main/app.c
 +++ b/esp32/main/app.c
-@@ -93,6 +93,9 @@
+@@ -103,6 +103,9 @@
  #endif
  #if CONFIG_MUSE_ENABLED
  #include "muse_glue.h"
 +#if CONFIG_MUSE_APPS
-+#include "muse_apps.h"   // muse-charm: the watch's commands
++#include "apps/muse_apps.h"   // muse-charm: the watch's commands
 +#endif
  #include "muse_input.h"
+ #include "muse_wakeword_glue.h"
  // Muse joins Wi-Fi from its own settings, before or without pairing.
- #define WIFI_WITHOUT_PAIRING 1
-@@ -1941,6 +1944,13 @@ static cJSON *bug_report_command(
- 
- #endif  // CONFIG_HOMEHUB_BLE_COMMANDS
+@@ -2125,6 +2128,13 @@ static cJSON *wakeword_disable_command(void) {
+ }
+ #endif
  
 +#if CONFIG_MUSE_APPS
 +// muse-charm: asynchronous results from the apps (luapp.install and friends).
@@ -363,19 +445,19 @@ index 1786289..22606f6 100644
  static cJSON *on_ws_command(
      const char *command, cJSON *params, const char *request_id,
      noise_ctrl_session_generation_t session_generation) {
-@@ -1948,6 +1958,11 @@ static cJSON *on_ws_command(
-     if (ble_commands_handles(command)) {
-         return ble_commands_handle(command, params, request_id, session_generation);
+@@ -2146,6 +2156,11 @@ static cJSON *on_ws_command(
+         return muse_apps_command(command, params, request_id, session_generation);
      }
-+#endif
-+#if CONFIG_MUSE_APPS
+ #endif
++#if CONFIG_MUSE_APPS   // muse-charm
 +    if (muse_apps_handles(command)) {
 +        return muse_apps_command(command, params, request_id, session_generation);
 +    }
- #endif
-     if (strcmp(command, "device.list_vms") == 0) {
-         return list_vms_command();
-@@ -2722,6 +2737,9 @@ void app_run(void) {
++#endif
+ #if CONFIG_HOMEHUB_DISPLAY_COMMANDS
+     bool draw_file = strcmp(command, "display.draw_file") == 0;
+     if (draw_file || strcmp(command, "display.draw_url") == 0) {
+@@ -3007,6 +3022,9 @@ void app_run(void) {
  
      noise_ctrl_init(identity_node_id(), identity_ble_name(), on_ws_control_status);
      noise_ctrl_set_command_cb(on_ws_command);
@@ -386,113 +468,70 @@ index 1786289..22606f6 100644
      heap_snapshot("after noise_ctrl_init");
  #if CONFIG_HOMEHUB_BLE_COMMANDS
 diff --git a/esp32/main/muse_glue.c b/esp32/main/muse_glue.c
-index 82d14df..8846fb3 100644
+index 0621e7d..96e0741 100644
 --- a/esp32/main/muse_glue.c
 +++ b/esp32/main/muse_glue.c
-@@ -48,6 +48,9 @@
+@@ -62,6 +62,9 @@
  #if CONFIG_MUSE_REALTIME_VOICE
  #include "muse_voice_call.h"
  #endif
 +#if CONFIG_MUSE_APPS
-+#include "muse_apps.h"   // muse-charm: the apps' serial console command
++#include "apps/muse_apps.h"   // muse-charm: the apps' serial console command
 +#endif
  
  static const char *TAG = "link.muse";
  
-@@ -649,13 +652,24 @@ static void boot_task(void *arg) {
+@@ -752,7 +755,7 @@ static void boot_task(void *arg) {
      vTaskDelete(NULL);
  }
  
-+#if CONFIG_MUSE_APPS
-+// muse-charm: the console has one hook; the SDK token command keeps it first.
-+static bool console_hook(const char *line) {
-+    return sdk_token_console_command(line) || muse_apps_console(line);
-+}
+-#if CONFIG_MUSE_WASM_APPS || CONFIG_MUSE_AVATAR_SYNC
++#if CONFIG_MUSE_WASM_APPS || CONFIG_MUSE_AVATAR_SYNC || CONFIG_MUSE_APPS
+ // The console's setup lines: the SDK token, then the app loader (muse_apps.h).
+ static bool console_line(const char *line) {
+     if (sdk_token_console_command(line)) return true;
+@@ -761,6 +764,9 @@ static bool console_line(const char *line) {
+ #endif
+ #if CONFIG_MUSE_WASM_APPS
+     if (muse_apps_console(line)) return true;
 +#endif
-+
- void muse_glue_start(void) {
-     // First, before Link's Wi-Fi, BLE and tunnel and Muse's display take and
-     // fragment internal RAM: the CPU's light-sleep retention memory.
++#if CONFIG_MUSE_APPS
++    if (muse_apps_console(line)) return true;   // muse-charm: the apps' "apps COMMAND {json}"
+ #endif
+     return false;
+ }
+@@ -772,7 +778,7 @@ void muse_glue_start(void) {
      muse_input_power_init();
      s_ready = xEventGroupCreate();
      muse_link_register(&s_ops);
-+#if CONFIG_MUSE_APPS
-+    muse_input_set_console_hook(console_hook);
-+#else
-     muse_input_set_console_hook(sdk_token_console_command);
-+#endif
-     muse_ble_set_name(identity_ble_name());
-     ble_companion_t companion = {
-         .svcs = muse_ble_services(),
+-#if CONFIG_MUSE_WASM_APPS || CONFIG_MUSE_AVATAR_SYNC
++#if CONFIG_MUSE_WASM_APPS || CONFIG_MUSE_AVATAR_SYNC || CONFIG_MUSE_APPS
+     muse_input_set_console_hook(console_line);
+ #if CONFIG_MUSE_WASM_APPS
+     muse_apps_start(noise_ctrl_send_command_result);
 diff --git a/esp32/main/noise_control.cpp b/esp32/main/noise_control.cpp
-index b5a699a..ac2621b 100644
+index 0789948..2bd84a9 100644
 --- a/esp32/main/noise_control.cpp
 +++ b/esp32/main/noise_control.cpp
-@@ -1379,6 +1379,10 @@ static void identity_on_frame(identity_fetch &f, const DecodedServiceFrame &fram
+@@ -1388,6 +1388,10 @@ static void identity_on_frame(identity_fetch &f, const DecodedServiceFrame &fram
  
  extern "C" const char muse_device_guide_md[];
  
 +#if CONFIG_MUSE_APPS
-+#include "muse_apps.h"   // muse-charm: the watch's commands
++#include "apps/muse_apps.h"   // muse-charm: the watch's commands
 +#endif
 +
  static cJSON *string_param(const char *description) {
      cJSON *param = cJSON_CreateObject();
      cJSON_AddStringToObject(param, "type", "string");
-@@ -1646,6 +1650,10 @@ static char *build_register_json(void) {
+@@ -1723,6 +1727,10 @@ static char *build_register_json(void) {
          cJSON_GetObjectItem(commands, "camera.capture"), "timeout_ms", 30000);
  #endif
  
 +#if CONFIG_MUSE_APPS
-+    muse_apps_register_commands(commands);
++    muse_apps_register_commands(commands);   // muse-charm
 +#endif
 +
-     if (ota_is_enabled()) {
-         cJSON *ota_required = cJSON_CreateObject();
-         cJSON_AddItemToObject(ota_required, "url",
-@@ -2385,6 +2393,7 @@ static session_result_t run_session(stack_monitor_t *stack) {
-     noise_tunnel_emit_t tun_emit = {&tun_ctx, tunnel_open_stream, tunnel_send_body,
-                                     tunnel_send_body_inplace, tunnel_reset_stream};
-     bool tunnel_opened = false;
-+    bool register_held_logged = false;   // muse-charm
-     uint64_t last_busy_us = esp_timer_get_time();
- 
-     while (!error && s_running) {
-@@ -2578,6 +2587,14 @@ static session_result_t run_session(stack_monitor_t *stack) {
-                  || control_tx.prefix_sent != old_prefix_sent)) {
-                 did = true;
-                 last_activity_us = esp_timer_get_time();
-+            } else if (control_tx.is_registration && !register_held_logged
-+                       && esp_timer_get_time() - session_up_us > 10 * 1000 * 1000) {
-+                // muse-charm: say why commands can't arrive yet.
-+                register_held_logged = true;
-+                ESP_LOGW(TAG, "link.register held for DMA headroom: %u free (%u largest), needs %u",
-+                         (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA),
-+                         (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_DMA),
-+                         (unsigned)NOISE_TX_DMA_RESERVE_BYTES);
-             }
-             if (status == json_send_status::Complete) {
-                 if (control_tx.is_heartbeat) {
-diff --git a/esp32/main/noise_tunnel_internal.h b/esp32/main/noise_tunnel_internal.h
-index fbcce43..8f15c10 100644
---- a/esp32/main/noise_tunnel_internal.h
-+++ b/esp32/main/noise_tunnel_internal.h
-@@ -87,7 +87,18 @@ typedef struct {
- // at the result-queue boundary, before every control chunk, tunnel batch and
- // ping. Download admission also leaves this margin after its allocations.
- // It is not a contiguous-allocation requirement or a reservation.
-+// muse-charm: with the home-network tunnel off there are no 8 KiB tunnel
-+// batches, and with live voice and the apps on, the Waveshare 1.75C idles at
-+// 13-17 KiB of free DMA RAM: under 16 KiB, link.register waited forever and no
-+// command reached the board. 12 KiB keeps the margin for control messages.
-+#ifdef ESP_PLATFORM
-+#include "sdkconfig.h"
-+#endif
-+#if defined(CONFIG_MUSE_APPS) && !defined(CONFIG_HOMEHUB_TUNNEL)
-+#define NOISE_TX_DMA_RESERVE_BYTES (12 * 1024)
-+#else
- #define NOISE_TX_DMA_RESERVE_BYTES (16 * 1024)
-+#endif
- 
- // Total-free burst margin for tunnel batches, result dequeue, every control
- // chunk and tunnel pings. Optionally return the same sample for diagnostics.
+ #if CONFIG_HOMEHUB_BLE_COMMANDS
+     ble_commands_register(commands);
+ #endif

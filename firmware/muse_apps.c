@@ -12,6 +12,7 @@
 #include <strings.h>
 
 #include "esp_log.h"
+#include "sdkconfig.h"
 #include "esp_netif_sntp.h"
 
 #include "muse_apps.h"
@@ -120,12 +121,18 @@ int muse_apps_target(void)
     return show >= 0 && show < APP_COUNT ? show : atomic_load(&s_active);
 }
 
-/* Left to right on screen: the tiles left of Muse, Muse, the rest, settings. */
+/* Left to right on screen: the tiles left of Muse, the SDK's latest reply
+ * (CONFIG_MUSE_LATEST_REPLY), Muse, the rest, settings (muse_ui.c). */
+#if CONFIG_MUSE_LATEST_REPLY
+#define REPLY_TILES 1
+#else
+#define REPLY_TILES 0
+#endif
 static int screen_pos(int app)
 {
-    if (app < 0 || app >= APP_COUNT) return MUSE_APPS_COUNT + 1;   /* settings */
-    if (app == APP_MUSE) return MUSE_APPS_LEFT;
-    return app < MUSE_APPS_LEFT ? app : app + 1;
+    if (app < 0 || app >= APP_COUNT) return MUSE_APPS_COUNT + 1 + REPLY_TILES;   /* settings */
+    if (app == APP_MUSE) return MUSE_APPS_LEFT + REPLY_TILES;
+    return app < MUSE_APPS_LEFT ? app : app + 1 + REPLY_TILES;
 }
 
 bool muse_apps_near(int app)

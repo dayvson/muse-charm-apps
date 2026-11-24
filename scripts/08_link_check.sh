@@ -81,7 +81,7 @@ else:
 hb = [l for l in seen if "hb t=" in l]
 if hb:
     m = re.search(r"dma=(\d+)K", hb[-1])
-    if m: print(f"   free DMA RAM at the end: {m.group(1)} KB (the link needs 12 KB with this firmware, 16 KB before)")
+    if m: print(f"   free DMA RAM at the end: {m.group(1)} KB (the link sends only with 16 KB or more free)")
 if not any("sent link.register" in l for l in ALL):
     print("   link.register was not sent while listening (fine if the board had been up a while; bad right after a boot)")
 for k in ("reconnect", "rejected", "result queue full", "stale control session", "tunnel stream open failed"):

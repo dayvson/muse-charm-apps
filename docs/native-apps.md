@@ -28,7 +28,7 @@ They share a few rules:
 
 ![Watch](../firmware/preview/watch-1009.png)
 
-A dual-time pocket watch, one swipe right of Muse.
+A dual-time pocket watch, two swipes right of Muse (the latest reply is between them).
 
 - **Local** time (where you are) drives the Meta-blue hour hand, the minute hand,
   the small seconds, the date and the LOCAL window.
@@ -56,7 +56,7 @@ sees a flight in your calendar.
 
 ![Stocks](../firmware/preview/stocks-META-1W.png)
 
-META, SHOP and SPY, two swipes right of Muse: price, change, and a chart over 1D,
+META, SHOP and SPY, three swipes right of Muse: price, change, and a chart over 1D,
 1W, 1M, 1Y or 5Y. Tap the pills to switch symbol and range.
 
 - Data comes from Yahoo Finance's v8 chart API (no key), fetched by the board and
@@ -75,7 +75,7 @@ META, SHOP and SPY, two swipes right of Muse: price, change, and a chart over 1D
 
 ![Wind](../firmware/preview/wind-crandon-today.png)
 
-A kite forecast in knots, three swipes right of Muse.
+A kite forecast in knots, four swipes right of Muse.
 
 - **Spots:** Crandon Park and Stiltsville (Key Biscayne, Miami), plus one spot Muse
   sets for anywhere else you ask about.

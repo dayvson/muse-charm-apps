@@ -9,7 +9,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SDK_URL=https://github.com/facebookincubator/muse-gadget-sdk.git
-SDK_COMMIT=b11908c        # the SDK commit patches/ were made against
+SDK_COMMIT=e17081a        # the SDK commit patches/ were made against
 IDF_VERSION=v6.0.3
 IDF="$ROOT/toolchain/esp-idf-$IDF_VERSION"
 export IDF_TOOLS_PATH="$ROOT/toolchain/espressif"
@@ -29,7 +29,7 @@ if [ ! -d "$SDK/.git" ]; then
 fi
 HEAD="$(git -C "$SDK" rev-parse --short=7 HEAD)"
 [ "$HEAD" = "$SDK_COMMIT" ] || echo "   note: SDK is at $HEAD, patches were made against $SDK_COMMIT (they may not apply)"
-for p in 0001-muse_vm-task-stack-via-helper_task.patch 0002-muse-apps-hooks.patch; do
+for p in 0002-muse-apps-hooks.patch; do
   if git -C "$SDK" apply --reverse --check "$ROOT/patches/$p" 2>/dev/null; then
     echo "   $p already applied"
   else

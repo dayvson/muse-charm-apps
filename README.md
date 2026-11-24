@@ -68,6 +68,8 @@ the source and a README:
 | [**Spotify**](apps/spotify/) | A Spotify remote in Spotify's own colours: the playing track with its album art, a progress bar with the current time and duration, Previous / Play-Pause / Next controls, and a Release Radar discovery screen. The controls are optimistic and the transport prefers a small bridge service when one is configured. |
 | [**Invaders**](apps/invaders/) | The classic fixed shooter: a marching formation of invaders that drops as it crosses, a cannon steered by dragging, tap or hold to fire, three lives and faster waves, with a stored best score. |
 | [**Asteroids**](apps/asteroids/) | The classic vector shooter in pure contours: an outline ship steered by holding a finger down, and four sizes of tumbling outline asteroids that split into two of the next size down when shot. |
+| [**Flappy Vela**](apps/flappy/) | The one-button arcade classic with Vela the puppy in the bird's place, propeller hat spinning as she climbs: tap to flap, thread the pipes, one point per pipe, with a stored best score. |
+| [**Vela Jump**](apps/doodle/) | A doodle-jump climber: Vela bounces up an endless stack of platforms, drag to steer and wrap around the edges, green platforms steady, blue ones sliding, brown ones breaking, springs for a real launch, and the height in metres as the score. |
 
 | Timer | Paddle Ball | Moon Phase | Horoscope |
 |---|---|---|---|

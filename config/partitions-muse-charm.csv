@@ -1,4 +1,4 @@
-# muse-charm: the SDK's partitions_muse.csv plus a FAT partition for Lua apps (luapps).
+# muse-charm: the SDK's partitions_muse.csv plus FAT partitions for Lua apps (luapps).
 # NVS and the app slots stay where they are, so a reflash keeps the pairing.
 nvs,       data, nvs,     0x11000,  0xC000,
 otadata,   data, ota,     0x1D000,  0x2000,
@@ -7,7 +7,11 @@ ota_0,     app,  ota_0,   0x20000,  4M,
 ota_1,     app,  ota_1,   0x420000, 4M,
 prod_data, data, 0x40,    0x820000, 0x1000,
 prod_bak,  data, 0x41,    0x821000, 0x1000,
-luapps,    data, fat,     0x830000, 0x100000,
+# The first Lua apps partition (1 MB). Apps moved to "luapps" below; the firmware
+# copies them over once and leaves this one as it was, as a backup.
+luapps_v1, data, fat,     0x830000, 0x100000,
 # Vela's animation frames (scripts/05_avatar.sh make writes avatars/ID.bin; 04_flash_muse.sh
 # flashes it here). Read a frame at a time, so the clips cost no PSRAM.
 avatar,    data, 0x50,    0x930000, 4M,
+# Lua apps (FAT, 8 MB): their code, icons, saved state and files (luapp_store.c).
+luapps,    data, fat,     0xD30000, 8M,

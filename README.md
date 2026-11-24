@@ -10,9 +10,11 @@ voice notes with a hold, and it shows your Muse's own avatar. This repository
 adds apps beside Muse on the same screen, so swiping sideways moves between them.
 
 ```
-  Wind  |  Stocks  |  Watch  |  Muse  |  Apps  |  Settings
-  <---- native apps (C/LVGL) ----     Lua apps by Muse
+  Wind  |  Stocks  |  Watch  |  Reply  |  Muse  |  Apps  |  Settings
+  <---- native apps (C/LVGL) ---- (SDK)            Lua apps by Muse
 ```
+
+Reply is the SDK's own page: swipe right from Muse to reread its latest answer.
 
 ## What we built
 
@@ -38,8 +40,16 @@ a drawing canvas for games (timers down to 16 ms, and frames that send the
 screen only what changed), a 4-channel synth, the battery, the
 microphone level and the motion sensor, alarms that wake the board, and
 `muse.ask` to put a question to Muse from inside an app. Muse can take a
-screenshot of what its app draws, and measure its speed. Up to 9 apps, 64 KB of
-source each, run one at a time in a sandbox on their own task.
+screenshot of what its app draws, and measure its speed. Apps run one at a time
+in a sandbox on their own task, with up to 64 KB of source each.
+
+**Room for 64 apps.** Apps live on their own 8 MB flash partition, in a folder
+rather than FAT's small root directory, and the launcher shows them six to a
+page. Only the icons of the page you're on and the next stay in memory
+(27 KB each); the rest load from flash as you swipe, so 64 apps cost no more
+memory than 9 did. Boards that had apps on the old 1 MB partition get them
+copied over, with their files, saved state and alarms, on the first boot, and
+the old partition stays as a backup ([docs/launcher.md](docs/launcher.md)).
 
 **Apps by Muse.** These Lua apps were written by Muse and deployed to the board
 through the launcher, with no firmware change. Each folder in [`apps/`](apps/) has
@@ -135,7 +145,7 @@ These are created locally and never committed: `muse-gadget-sdk/`, `toolchain/`,
 
 This is a hobby project on community hardware. As the SDK puts it, tinkering may
 brick boards or void warranties, so proceed at your own risk. It's built and
-tested on one board, against SDK commit `b11908c` and ESP-IDF v6.0.3. The Watch,
+tested on one board, against SDK commit `e17081a` and ESP-IDF v6.0.3. The Watch,
 Stocks and Wind defaults (Miami, San Francisco, Key Biscayne kite spots, the
 three tickers) are ours; [docs/native-apps.md](docs/native-apps.md) says where
 to change them.

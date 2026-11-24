@@ -7,7 +7,10 @@
 
 Sends text to Muse as a typed message (marked as coming from this app) and
 returns Muse's text reply, usually in 5-30 s. One at a time, 5 s apart, 30
-per run; nothing while a voice call is on. Ask for a short plain-text answer,
+per run; nothing while a voice call is on. Asking while one is on its way
+queues the new question (only the newest: one it replaces gets nil,
+"replaced by a newer question"). For anything a web API can answer, http
+is far faster: a turn with Muse takes seconds. Ask for a short plain-text answer,
 or JSON you can json.decode. The user's chat history shows the exchange.
 
     app.on_message(function(data) return reply end)
@@ -75,7 +78,9 @@ The same data as the stocks.get, wind.get and watch.get commands.
 
 fn is called as fn(ok, body, status), as with http.get. method: GET, POST,
 PUT, PATCH, DELETE or HEAD. headers: {["Name"] = "value"}. body: a string,
-or a table sent as JSON. Bodies up to 16 KB out, 32 KB back.
+or a table sent as JSON. Bodies up to 16 KB out, 32 KB back. Requests run one
+at a time for all apps; the connection stays open 20 s, so repeated calls to
+one host (polling an API every few seconds) skip the TLS handshake.
 
 ## Seeing the app (for Muse)
 

@@ -76,6 +76,8 @@ EXT_RAM_BSS_ATTR static struct {
     int ask_ref;
     int64_t ask_last;
     int asks;
+    int pend_ref;        /* a question waiting its turn (the newest one), or LUA_NOREF */
+    char *pend_q;        /* its text (PSRAM) */
 } D;
 
 /* ---- JSON <-> Lua ---- */
@@ -500,6 +502,46 @@ void muse_apps_chat_line(const char *type, const char *text)
     if (wake) luapp_vm_wake();
 }
 
+/* Starts the typed turn for question q; ref is its callback (in the registry).
+ * False, with the callback untouched, if there's no memory. */
+static bool send_ask(const char *q, size_t n, int ref, int64_t now)
+{
+    if (!s_ask.buf) s_ask.buf = heap_caps_malloc(ASK_REPLY_MAX + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    char name[LUAPP_NAME_MAX + 1];
+    luapp_vm_app_name(name, sizeof(name));
+    size_t cap = n + 128;
+    char *text = malloc(cap);   /* muse_hatch_text_turn frees it */
+    if (!s_ask.buf || !text) {
+        free(text);
+        return false;
+    }
+    snprintf(text, cap, "[From the %s app on the gadget; your reply is shown on its small round screen] %s", name, q);
+    D.ask_ref = ref;
+    D.ask_last = now;
+    D.asks++;
+    taskENTER_CRITICAL(&s_mux);
+    s_ask.state = ASK_WAITING;
+    s_ask.gen = luapp_vm_gen();
+    s_ask.len = s_ask.msg_start = 0;
+    s_ask.buf[0] = 0;
+    s_ask.err[0] = 0;
+    s_ask.started = now;
+    taskEXIT_CRITICAL(&s_mux);
+    ESP_LOGI(TAG, "%s asks Muse (%u chars)", name, (unsigned)n);
+    muse_hatch_text_turn(text);
+    return true;
+}
+
+/* Calls callback ref with (nil, why) and drops it. */
+static bool fail_ask(lua_State *L, int ref, const char *why)
+{
+    lua_rawgeti(L, LUA_REGISTRYINDEX, ref);
+    luaL_unref(L, LUA_REGISTRYINDEX, ref);
+    lua_pushnil(L);
+    lua_pushstring(L, why);
+    return luapp_vm_call(2);
+}
+
 static int l_muse_ask(lua_State *L)
 {
     size_t n;
@@ -513,9 +555,8 @@ static int l_muse_ask(lua_State *L)
     taskENTER_CRITICAL(&s_mux);
     int state = s_ask.state;
     taskEXIT_CRITICAL(&s_mux);
-    if (state == ASK_WAITING || D.ask_ref != LUA_NOREF) why = "one question at a time";
-    else if (D.asks >= ASK_PER_RUN) why = "too many questions this run";
-    else if (D.ask_last && now - D.ask_last < ASK_GAP_US) why = "wait 5 s between questions";
+    bool busy = state == ASK_WAITING || D.ask_ref != LUA_NOREF || (D.ask_last && now - D.ask_last < ASK_GAP_US);
+    if (D.asks >= ASK_PER_RUN) why = "too many questions this run";
     else if (st.state == MUSE_HATCH_NOT_SET) why = "Muse isn't set up";
     else if (!muse_wifi_connected()) why = "offline";
     else if (muse_voice_in_call()) why = "in a call";
@@ -526,30 +567,33 @@ static int l_muse_ask(lua_State *L)
         lua_call(L, 2, 0);
         return 0;
     }
-    if (!s_ask.buf) s_ask.buf = heap_caps_malloc(ASK_REPLY_MAX + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    char name[LUAPP_NAME_MAX + 1];
-    luapp_vm_app_name(name, sizeof(name));
-    size_t cap = n + 128;
-    char *text = malloc(cap);   /* muse_hatch_text_turn frees it */
-    if (!s_ask.buf || !text) {
-        free(text);
+    if (busy) {
+        /* Waits for the one before it and the 5 s gap. Only the newest waits:
+         * a question it replaces is answered (nil, "replaced"). */
+        char *copy = heap_caps_malloc(n + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!copy) return luaL_error(L, "muse.ask: out of memory");
+        memcpy(copy, q, n + 1);
+        int old = D.pend_ref;
+        free(D.pend_q);
+        D.pend_q = copy;
+        lua_pushvalue(L, 2);
+        D.pend_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+        if (old != LUA_NOREF) {
+            lua_rawgeti(L, LUA_REGISTRYINDEX, old);
+            luaL_unref(L, LUA_REGISTRYINDEX, old);
+            lua_pushnil(L);
+            lua_pushstring(L, "replaced by a newer question");
+            lua_call(L, 2, 0);
+        }
+        luapp_vm_wake();
+        return 0;
+    }
+    lua_pushvalue(L, 2);
+    int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    if (!send_ask(q, n, ref, now)) {
+        luaL_unref(L, LUA_REGISTRYINDEX, ref);
         return luaL_error(L, "muse.ask: out of memory");
     }
-    snprintf(text, cap, "[From the %s app on the gadget; your reply is shown on its small round screen] %s", name, q);
-    lua_pushvalue(L, 2);
-    D.ask_ref = luaL_ref(L, LUA_REGISTRYINDEX);
-    D.ask_last = now;
-    D.asks++;
-    taskENTER_CRITICAL(&s_mux);
-    s_ask.state = ASK_WAITING;
-    s_ask.gen = luapp_vm_gen();
-    s_ask.len = s_ask.msg_start = 0;
-    s_ask.buf[0] = 0;
-    s_ask.err[0] = 0;
-    s_ask.started = now;
-    taskEXIT_CRITICAL(&s_mux);
-    ESP_LOGI(TAG, "%s asks Muse (%u chars)", name, (unsigned)n);
-    muse_hatch_text_turn(text);
     return 0;
 }
 
@@ -726,7 +770,7 @@ void luapp_dev_open(lua_State *L)
 {
     memset(&D, 0, sizeof(D));
     D.L = L;
-    D.button_ref = D.alarm_ref = D.message_ref = D.ask_ref = LUA_NOREF;
+    D.button_ref = D.alarm_ref = D.message_ref = D.ask_ref = D.pend_ref = LUA_NOREF;
     atomic_store(&s_button_wanted, false);
     atomic_store(&s_button_pressed, false);
     atomic_store(&s_bright, -1);
@@ -783,8 +827,9 @@ void luapp_dev_stop(void)
         free(s_apps_cache[i].json);
         s_apps_cache[i].json = NULL;
     }
+    free(D.pend_q);   /* its callback went with the Lua state */
     memset(&D, 0, sizeof(D));
-    D.button_ref = D.alarm_ref = D.message_ref = D.ask_ref = LUA_NOREF;
+    D.button_ref = D.alarm_ref = D.message_ref = D.ask_ref = D.pend_ref = LUA_NOREF;
 }
 
 bool luapp_dev_has_alarm_handler(void) { return D.L && D.alarm_ref != LUA_NOREF; }
@@ -872,6 +917,26 @@ int64_t luapp_dev_tick(void)
     } else if (state == ASK_WAITING) {
         int64_t t = s_ask.started + ASK_TIMEOUT_US;
         if (t < next) next = t;
+    }
+    /* A question that waited for the one before it. */
+    if (D.pend_ref != LUA_NOREF && D.ask_ref == LUA_NOREF) {
+        taskENTER_CRITICAL(&s_mux);
+        bool idle = s_ask.state != ASK_WAITING;
+        taskEXIT_CRITICAL(&s_mux);
+        int64_t due = D.ask_last + ASK_GAP_US;
+        if (idle && now >= due) {
+            int ref = D.pend_ref;
+            char *q = D.pend_q;
+            D.pend_ref = LUA_NOREF;
+            D.pend_q = NULL;
+            const char *why = !muse_wifi_connected() ? "offline" : muse_voice_in_call() ? "in a call" : NULL;
+            bool sent = !why && send_ask(q, strlen(q), ref, now);
+            free(q);
+            if (!sent && (!fail_ask(D.L, ref, why ? why : "out of memory") || !D.L)) return INT64_MAX;
+            now = now_us();
+        } else if (idle && due < next) {
+            next = due;
+        }
     }
     /* The bottom button. */
     if (atomic_exchange(&s_button_pressed, false) && D.button_ref != LUA_NOREF) {

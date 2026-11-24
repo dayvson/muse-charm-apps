@@ -15,7 +15,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define LUAPP_MAX_APPS 9   /* the launcher: pages of 6 */
+#define LUAPP_MAX_APPS 64   /* the launcher: pages of 6. Storage (8 MB) is the real limit. */
 #define LUAPP_ID_MAX 12
 #define LUAPP_NAME_MAX 16
 #define LUAPP_CODE_MAX (64 * 1024)
@@ -37,6 +37,9 @@ bool luapp_name_valid(const char *name);
 
 /* Index (any task). */
 int luapp_store_list(luapp_meta_t *out, int cap);
+int luapp_store_count(void);
+/* The app storage's size and free space, in KB. */
+bool luapp_store_space(uint32_t *total_kb, uint32_t *free_kb);
 bool luapp_store_find(const char *id, luapp_meta_t *out);
 uint32_t luapp_store_version(void);
 

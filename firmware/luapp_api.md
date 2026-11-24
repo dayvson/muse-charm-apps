@@ -3,7 +3,7 @@
 Lua 5.4 apps on a 466x466 round touch screen (an ESP32-S3 watch-sized gadget).
 Install with `luapp.install` (id, name, color, code); it compiles, saves and runs
 the app, and returns syntax or start-up errors with line numbers. Errors later
-are in `luapp.admin` action `logs`. Up to 9 apps, 64 KB of source each.
+are in `luapp.admin` action `logs`. Up to 64 apps, 64 KB of source each.
 More: `api_ui` (rollers, sliders, switches, lists, scrolling, animation,
 swipes, the button), `api_gfx` (images, sprites, canvas), `api_sound`,
 `api_device` (muse.ask, battery, motion, mic, alarms, files, HTTP POST,

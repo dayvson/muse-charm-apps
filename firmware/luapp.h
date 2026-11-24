@@ -13,6 +13,7 @@
 #include "cJSON.h"
 #include "lvgl.h"
 #include "muse_apps.h"
+#include "luapp_store.h"   /* LUAPP_ID_MAX */
 
 /* luapp_vm.c */
 void luapp_vm_start(void);
@@ -33,3 +34,9 @@ void luapp_ui_show_error(const char *app_name, const char *error);
 /* The launcher icon for an app: an icon file (luapp_image.h), copied, or
  * NULL to go back to its initials. false if it isn't one or there's no room. */
 bool luapp_ui_set_icon(const char *id, const uint8_t *file);
+/* Icons are kept for a few pages only (the one showing and the next). The ids
+ * on them that have no icon loaded yet, up to cap; the Lua task loads those. */
+#define LUAPP_UI_WANT_MAX 12
+int luapp_ui_icons_wanted(char ids[][LUAPP_ID_MAX + 1], int cap);
+/* luapp_vm.c: load the launcher's wanted icons soon (any task). */
+void luapp_vm_want_icons(void);

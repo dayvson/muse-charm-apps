@@ -17,7 +17,7 @@ your desk.
         |              writes Lua, then sends:       luapp.install {id, name, color, code}
         v
      the board ------ compiles it (syntax errors go back with line numbers)
-                      saves it to the luapps partition (FAT, 1 MB)
+                      saves it to the luapps partition (FAT, 8 MB)
                       opens it; start-up errors go back too
                       -> "ok, running"
 ```
@@ -32,11 +32,14 @@ your desk.
   through the modules below.
 - **Time limits:** each callback has 250 ms (the first run of the script gets 1 s). A
   hook stops a runaway callback, and an error stops the app and shows on screen.
-- **Storage:** up to 9 apps of up to 64 KB of source each, plus each app's `store`
-  values, on the `luapps` FAT partition
+- **Storage:** up to 64 apps of up to 64 KB of source each, plus each app's `store`
+  values and icon, in `/luapps/apps/` on the 8 MB `luapps` FAT partition
   ([`config/partitions-muse-charm.csv`](../config/partitions-muse-charm.csv)). Apps
   survive reflashing, because the partition table keeps NVS and the app slots where
-  the SDK has them.
+  the SDK has them. Until November 2026 apps lived on a 1 MB partition: the first boot
+  with the 8 MB one copies them over (`_v1copied` marks it done) and leaves the old
+  one, now `luapps_v1`, as it was. The launcher keeps only the icons of the page
+  showing and the next in memory (27 KB each) and loads others as pages turn.
 - **Launcher:** pages of six (two rows of three 96 px round icons), one page per
   vertical swipe, with page dots. Each app draws its own icon at start-up with
   `app.icon`, saved next to the app and cached for the launcher.
@@ -64,7 +67,7 @@ The full reference lives on the board: Muse reads it with `luapp.admin` and acti
 | `app` | `id`, `name`, `icon(img)`, `exit()`, `keep_awake`, `brightness`, `alarm` / `on_alarm` / `cancel_alarm` / `alarms` (wake the board and open the app at a time; kept in `/luapps/_alarms`), `on_message` (for `luapp.send`) |
 | `muse` | `muse.ask(text, fn)`: a typed turn to Muse, its text reply back to the app (a hook on the SDK's `@chat` console lines); `muse.status()` |
 | `device`, `mic`, `motion` | battery, charging, Wi-Fi, Muse, call, volume; microphone level (the settings meter's dBFS); accelerometer and gyroscope (QMI8658 on the shared I2C bus, probed at 0x6B/0x6A) |
-| `fs` | the app's own files in `/luapps/<id>.fs/` (256 KB per app, 128 KB per file), removed with the app |
+| `fs` | the app's own files in `/luapps/apps/<id>.fs/` (256 KB per app, 128 KB per file), removed with the app |
 | `apps` | the built-in apps' data: `apps.stocks()`, `apps.wind()`, `apps.watch()` |
 
 The screen is round: coordinates start at the centre (+x right, +y down), and

@@ -3,7 +3,9 @@
 /*
  * One fetch task for every app: jobs run one at a time on a low-priority task
  * with a PSRAM stack, so at most one HTTPS connection (whose socket and
- * buffers take internal RAM) is ever open for the apps.
+ * buffers take internal RAM) is ever open for the apps. It stays open for 20 s
+ * after a fetch, so the next one to the same host skips the TCP and TLS
+ * handshakes; later ones resume the TLS session.
  */
 
 #include <stdbool.h>

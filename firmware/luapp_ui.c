@@ -22,6 +22,9 @@
 #define GRID LUAPP_MAX_APPS
 #define PER_PAGE 6
 #define PAGES ((GRID + PER_PAGE - 1) / PER_PAGE)
+/* Icons in memory (27 KB each): the page showing and the next. Others load
+ * from storage when their page comes up. */
+#define ICON_SLOTS LUAPP_UI_WANT_MAX
 #define DIM 0x8e8e93
 #define TEAL 0x27d3a2
 #define DOT_ON 0xa77dff    /* the device's page dots (muse_ui.c) */
@@ -34,7 +37,8 @@
 #define ONE_ROW_Y 225      /* the only row's, a little above the middle */
 #define NAME_W 124
 
-static lv_obj_t *s_tile, *s_launcher, *s_scroll, *s_root, *s_empty, *s_dots[PAGES];
+static lv_obj_t *s_tile, *s_launcher, *s_scroll, *s_root, *s_empty;
+EXT_RAM_BSS_ATTR static lv_obj_t *s_dots[PAGES];
 EXT_RAM_BSS_ATTR static char s_ids[GRID][LUAPP_ID_MAX + 1];
 static uint32_t s_shown_version = UINT32_MAX;
 static int s_pages, s_page;
@@ -45,8 +49,11 @@ typedef struct {
     char id[LUAPP_ID_MAX + 1];
     uint8_t *file;   /* LUAPP_ICON_FILE bytes */
     lv_image_dsc_t dsc;
+    lv_obj_t *img;   /* the launcher's one image of it (each app shows once), or NULL */
+    uint32_t stamp;  /* when it was loaded: the oldest goes first */
 } icon_t;
-EXT_RAM_BSS_ATTR static icon_t s_icons[GRID];
+EXT_RAM_BSS_ATTR static icon_t s_icons[ICON_SLOTS];
+EXT_RAM_BSS_ATTR static uint32_t s_stamp;
 static bool s_icons_changed;
 
 static lv_obj_t *label(lv_obj_t *parent, const lv_font_t *font, uint32_t color, const char *text)
@@ -60,10 +67,29 @@ static lv_obj_t *label(lv_obj_t *parent, const lv_font_t *font, uint32_t color, 
 
 static icon_t *icon_for(const char *id)
 {
-    for (int i = 0; i < GRID; i++) {
+    for (int i = 0; i < ICON_SLOTS; i++) {
         if (s_icons[i].id[0] && !strcmp(s_icons[i].id, id)) return &s_icons[i];
     }
     return NULL;
+}
+
+/* Whether app `id` is on the page showing or the next one. */
+static bool on_near_page(const char *id)
+{
+    int first = s_page * PER_PAGE, end = first + 2 * PER_PAGE;
+    for (int i = first; i < end && i < GRID; i++) {
+        if (s_ids[i][0] && !strcmp(s_ids[i], id)) return true;
+    }
+    return false;
+}
+
+int luapp_ui_icons_wanted(char ids[][LUAPP_ID_MAX + 1], int cap)
+{
+    int n = 0, first = s_page * PER_PAGE, end = first + 2 * PER_PAGE;
+    for (int i = first; i < end && i < GRID && n < cap; i++) {
+        if (s_ids[i][0] && !icon_for(s_ids[i])) strlcpy(ids[n++], s_ids[i], sizeof(ids[0]));
+    }
+    return n;
 }
 
 bool luapp_ui_set_icon(const char *id, const uint8_t *file)
@@ -76,10 +102,20 @@ bool luapp_ui_set_icon(const char *id, const uint8_t *file)
     }
     if (memcmp(file, "LIC", 3)) return false;
     luapp_meta_t m;
-    for (int i = 0; i < GRID && !ic; i++) {   /* a free slot, or one whose app is gone */
+    for (int i = 0; i < ICON_SLOTS && !ic; i++) {   /* a free slot, or one whose app is gone */
         if (!s_icons[i].id[0] || !luapp_store_find(s_icons[i].id, &m)) ic = &s_icons[i];
     }
+    for (int i = 0; i < ICON_SLOTS && !ic; i++) {   /* or the oldest off the pages near */
+        icon_t *c = &s_icons[i];
+        if (!on_near_page(c->id) && (!ic || c->stamp < ic->stamp)) ic = c;
+    }
     if (!ic) return false;
+    if (ic->img) {   /* another app's pixels are about to go: hide its picture till the rebuild */
+        lv_obj_add_flag(ic->img, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_bg_opa(lv_obj_get_parent(ic->img), LV_OPA_COVER, 0);
+        ic->img = NULL;
+    }
+    ic->stamp = ++s_stamp;
     if (!ic->file) ic->file = heap_caps_malloc(LUAPP_ICON_FILE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!ic->file) {
         ic->id[0] = 0;
@@ -147,6 +183,7 @@ static void on_scroll(lv_event_t *e)
     if (page != s_page) {
         s_page = page;
         show_dots();
+        luapp_vm_want_icons();   /* this page's icons, and the next one's */
     }
 }
 
@@ -209,6 +246,7 @@ static void make_cell(lv_obj_t *page, int i, const luapp_meta_t *app, int cx, in
         lv_obj_t *im = lv_image_create(dot);
         lv_image_set_src(im, &ic->dsc);
         lv_obj_center(im);
+        ic->img = im;
     } else {
         /* Initials: the first letters of the first two words. */
         char ini[3] = {0};
@@ -230,9 +268,10 @@ static void make_cell(lv_obj_t *page, int i, const luapp_meta_t *app, int cx, in
 
 static void rebuild(void)
 {
-    luapp_meta_t apps[LUAPP_MAX_APPS];
+    EXT_RAM_BSS_ATTR static luapp_meta_t apps[LUAPP_MAX_APPS];   /* UI task only */
     int n = luapp_store_list(apps, LUAPP_MAX_APPS);
     if (n > GRID) n = GRID;
+    for (int i = 0; i < ICON_SLOTS; i++) s_icons[i].img = NULL;
     lv_obj_clean(s_scroll);   /* pages, cells, arrows (and their animations) */
     for (int i = 0; i < GRID; i++) s_ids[i][0] = 0;
     lv_obj_set_flag(s_empty, LV_OBJ_FLAG_HIDDEN, n > 0);
@@ -265,12 +304,14 @@ static void rebuild(void)
     lv_obj_update_layout(s_scroll);
     lv_obj_scroll_to_y(s_scroll, s_page * SCREEN, LV_ANIM_OFF);
     show_dots();
+    luapp_vm_want_icons();
 }
 
 static void tick(lv_timer_t *t)
 {
     (void)t;
     uint32_t v = luapp_store_version();
+    if (lv_obj_is_scrolling(s_scroll)) return;   /* rebuilding would jump mid-swipe */
     if (v != s_shown_version || s_icons_changed) {
         s_shown_version = v;
         s_icons_changed = false;

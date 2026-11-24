@@ -12,6 +12,7 @@
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_partition.h"
 #include "esp_vfs_fat.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -20,6 +21,14 @@ static const char *TAG = "luapp_store";
 
 #define ROOT "/luapps"
 #define LABEL "luapps"
+/* The apps' files live in a folder: FAT's root holds 512 entries at most
+ * (about 35 apps' worth); a folder grows as needed. ROOT keeps _alarms. */
+#define APPS ROOT "/apps"
+/* The 1 MB partition apps lived on before (config/partitions-muse-charm.csv):
+ * copied once into the new one, then left alone as a backup. */
+#define OLD_LABEL "luapps_v1"
+#define OLD_ROOT "/luold"
+#define COPIED ROOT "/_v1copied"
 
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 EXT_RAM_BSS_ATTR static luapp_meta_t s_index[LUAPP_MAX_APPS];   /* under s_mux */
@@ -45,7 +54,7 @@ static void fs_unlock(void) { xSemaphoreGiveRecursive(s_fs); }
 
 static void path(char *out, size_t len, const char *id, const char *ext)
 {
-    snprintf(out, len, ROOT "/%s.%s", id, ext);
+    snprintf(out, len, APPS "/%s.%s", id, ext);
 }
 
 bool luapp_id_valid(const char *id)
@@ -126,9 +135,9 @@ static bool read_meta(const char *id, luapp_meta_t *m)
 
 static void rescan(void)
 {
-    luapp_meta_t found[LUAPP_MAX_APPS];
+    EXT_RAM_BSS_ATTR static luapp_meta_t found[LUAPP_MAX_APPS];   /* under the file lock */
     int n = 0;
-    DIR *d = opendir(ROOT);
+    DIR *d = opendir(APPS);
     if (d) {
         struct dirent *e;
         while ((e = readdir(d)) && n < LUAPP_MAX_APPS) {
@@ -149,6 +158,109 @@ static void rescan(void)
     taskEXIT_CRITICAL(&s_mux);
 }
 
+/* An app's file in a folder listing: <id>.lua/.meta/.kv/.ico or the <id>.fs folder. */
+static bool app_entry(const char *name)
+{
+    const char *dot = strrchr(name, '.');
+    if (!dot || dot == name) return false;
+    return !strcasecmp(dot, ".lua") || !strcasecmp(dot, ".meta") || !strcasecmp(dot, ".kv") ||
+           !strcasecmp(dot, ".ico") || !strcasecmp(dot, ".fs");
+}
+
+/* Apps from before the folder, at the root of this partition: into APPS. */
+static void move_root_apps(void)
+{
+    DIR *d = opendir(ROOT);
+    if (!d) return;
+    char from[300], to[300];
+    int moved = 0;
+    struct dirent *e;
+    while ((e = readdir(d))) {
+        if (!app_entry(e->d_name)) continue;
+        snprintf(from, sizeof(from), ROOT "/%s", e->d_name);
+        snprintf(to, sizeof(to), APPS "/%s", e->d_name);
+        if (rename(from, to) == 0) moved++;
+    }
+    closedir(d);
+    if (moved) ESP_LOGI(TAG, "moved %d app file(s) into " APPS, moved);
+}
+
+static bool copy_file(const char *from, const char *to, uint8_t *buf, size_t cap)
+{
+    FILE *in = fopen(from, "rb");
+    if (!in) return false;
+    FILE *out = fopen(to, "wb");
+    bool ok = out != NULL;
+    size_t n;
+    while (ok && (n = fread(buf, 1, cap, in)) > 0) ok = fwrite(buf, 1, n, out) == n;
+    if (ok) ok = !ferror(in);
+    fclose(in);
+    if (out && fclose(out) != 0) ok = false;
+    if (!ok) remove(to);
+    return ok;
+}
+
+/* Every file of folder `from` (no deeper) into folder `to`. */
+static int copy_dir(const char *from, const char *to, uint8_t *buf, size_t cap)
+{
+    DIR *d = opendir(from);
+    if (!d) return 0;
+    mkdir(to, 0775);
+    char a[300], b[300];
+    int n = 0;
+    struct dirent *e;
+    while ((e = readdir(d))) {
+        if (e->d_name[0] == '.' || e->d_type == DT_DIR) continue;
+        if (snprintf(a, sizeof(a), "%s/%s", from, e->d_name) >= (int)sizeof(a) ||
+            snprintf(b, sizeof(b), "%s/%s", to, e->d_name) >= (int)sizeof(b)) {
+            continue;
+        }
+        n += copy_file(a, b, buf, cap);
+    }
+    closedir(d);
+    return n;
+}
+
+/* Once, after the move to the bigger partition: the old one's apps, their
+ * files and the alarms, copied here. The old partition isn't changed. */
+static void copy_old_partition(void)
+{
+    struct stat st;
+    if (stat(COPIED, &st) == 0) return;
+    if (!esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_FAT, OLD_LABEL)) return;
+    esp_vfs_fat_mount_config_t cfg = {.format_if_mount_failed = false, .max_files = 2, .allocation_unit_size = 4096};
+    wl_handle_t wl;
+    if (esp_vfs_fat_spiflash_mount_rw_wl(OLD_ROOT, OLD_LABEL, &cfg, &wl) != ESP_OK) {
+        ESP_LOGW(TAG, "the old app partition doesn't mount: nothing to copy");
+    } else {
+        uint8_t *buf = heap_caps_malloc(4096, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        int files = 0;
+        DIR *d = buf ? opendir(OLD_ROOT) : NULL;
+        char a[300], b[300];
+        struct dirent *e;
+        while (d && (e = readdir(d))) {
+            const char *dot = strrchr(e->d_name, '.');
+            if (app_entry(e->d_name) && dot && !strcasecmp(dot, ".fs")) {
+                snprintf(a, sizeof(a), OLD_ROOT "/%s", e->d_name);
+                snprintf(b, sizeof(b), APPS "/%s", e->d_name);
+                files += copy_dir(a, b, buf, 4096);
+            } else if (app_entry(e->d_name) || !strcmp(e->d_name, "_alarms") || !strcasecmp(e->d_name, "_ALARMS")) {
+                bool alarms = !strcasecmp(e->d_name, "_alarms");
+                snprintf(a, sizeof(a), OLD_ROOT "/%s", e->d_name);
+                snprintf(b, sizeof(b), "%s/%s", alarms ? ROOT : APPS, alarms ? "_alarms" : e->d_name);
+                files += copy_file(a, b, buf, 4096);
+            }
+        }
+        if (d) closedir(d);
+        free(buf);
+        esp_vfs_fat_spiflash_unmount_rw_wl(OLD_ROOT, wl);
+        ESP_LOGI(TAG, "copied %d file(s) from the old app partition (%s, kept as it was)", files, OLD_LABEL);
+        if (!buf) return;   /* try again next boot */
+    }
+    FILE *f = fopen(COPIED, "wb");
+    if (f) fclose(f);
+}
+
 static bool fs_mount(void)
 {
     if (s_mounted) return true;
@@ -164,8 +276,14 @@ static bool fs_mount(void)
         return false;
     }
     s_mounted = true;
+    mkdir(APPS, 0775);
+    move_root_apps();
+    copy_old_partition();
     rescan();
-    ESP_LOGI(TAG, "mounted " ROOT ": %d app(s)", s_count);
+    uint64_t total = 0, free_b = 0;
+    esp_vfs_fat_info(ROOT, &total, &free_b);
+    ESP_LOGI(TAG, "mounted " ROOT ": %d app(s), %u of %u KB free", s_count, (unsigned)(free_b / 1024),
+             (unsigned)(total / 1024));
     return true;
 }
 
@@ -176,6 +294,27 @@ int luapp_store_list(luapp_meta_t *out, int cap)
     taskENTER_CRITICAL(&s_mux);
     int n = s_count < cap ? s_count : cap;
     memcpy(out, s_index, sizeof(out[0]) * n);
+    taskEXIT_CRITICAL(&s_mux);
+    return n;
+}
+
+bool luapp_store_space(uint32_t *total_kb, uint32_t *free_kb)
+{
+    uint64_t total = 0, free_b = 0;
+    if (!s_mounted) return false;
+    fs_lock();
+    esp_err_t err = esp_vfs_fat_info(ROOT, &total, &free_b);
+    fs_unlock();
+    if (err != ESP_OK) return false;
+    *total_kb = (uint32_t)(total / 1024);
+    *free_kb = (uint32_t)(free_b / 1024);
+    return true;
+}
+
+int luapp_store_count(void)
+{
+    taskENTER_CRITICAL(&s_mux);
+    int n = s_count;
     taskEXIT_CRITICAL(&s_mux);
     return n;
 }
@@ -250,7 +389,7 @@ static char *fs_code(const char *id, size_t *len)
 
 /* ---- an app's own files (fs.*): /luapps/<id>.fs/<name> ---- */
 
-static void dir_path(char *out, size_t len, const char *id) { snprintf(out, len, ROOT "/%s.fs", id); }
+static void dir_path(char *out, size_t len, const char *id) { snprintf(out, len, APPS "/%s.fs", id); }
 
 bool luapp_file_name_valid(const char *name)
 {
@@ -265,7 +404,7 @@ bool luapp_file_name_valid(const char *name)
 
 static void file_path(char *out, size_t len, const char *id, const char *name)
 {
-    snprintf(out, len, ROOT "/%s.fs/%s", id, name);
+    snprintf(out, len, APPS "/%s.fs/%s", id, name);
 }
 
 static int files_scan(const char *id, luapp_file_t *out, int cap, size_t *total)

@@ -262,6 +262,16 @@ static void set_running(const char *id)
 
 static void reply(const msg_t *m, cJSON *result)
 {
+    if (m->has_req && m->sgen == 0 && !strcmp(m->req_id, "console")) {
+        /* The USB console's request (muse_apps_console): it has no session, so
+         * the result is printed like the console's other answers. */
+        char *text = result ? cJSON_PrintUnformatted(result) : NULL;
+        printf("@apps %s\n", text ? text : "{}");
+        fflush(stdout);
+        cJSON_free(text);
+        cJSON_Delete(result);
+        return;
+    }
     if (m->has_req && s_reply) {
         s_reply(m->sgen, m->req_id, result);
     } else {
@@ -2315,20 +2325,33 @@ static int64_t run_timers(void)
     return next;
 }
 
-/* The saved launcher icons, into the launcher. */
+/* The saved icons of the launcher's pages near the one showing (it asks with
+ * luapp_vm_want_icons when that changes), into the launcher. */
+static atomic_bool s_icons_wanted;
+
+void luapp_vm_want_icons(void)
+{
+    atomic_store(&s_icons_wanted, true);
+    luapp_vm_wake();
+}
+
 static void load_icons(void)
 {
-    luapp_meta_t apps[LUAPP_MAX_APPS];
-    int n = luapp_store_list(apps, LUAPP_MAX_APPS), loaded = 0;
+    char ids[LUAPP_UI_WANT_MAX][LUAPP_ID_MAX + 1];
+    int n = 0, loaded = 0;
+    if (lock()) {
+        n = luapp_ui_icons_wanted(ids, LUAPP_UI_WANT_MAX);
+        unlock();
+    }
     uint8_t *buf = n ? heap_caps_malloc(LUAPP_ICON_FILE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) : NULL;
     for (int i = 0; buf && i < n; i++) {
-        if (luapp_store_icon_read(apps[i].id, buf, LUAPP_ICON_FILE) && lock()) {
-            loaded += luapp_ui_set_icon(apps[i].id, buf);
+        if (luapp_store_icon_read(ids[i], buf, LUAPP_ICON_FILE) && lock()) {
+            loaded += luapp_ui_set_icon(ids[i], buf);
             unlock();
         }
     }
     free(buf);
-    if (n) ESP_LOGI(TAG, "%d app(s), %d with an icon", n, loaded);
+    if (loaded) ESP_LOGI(TAG, "launcher: %d icon(s) loaded", loaded);
 }
 
 static void task(void *arg)
@@ -2356,6 +2379,7 @@ static void task(void *arg)
         /* 3. Off the Apps screen for 30 s: unload. Then what the board's hooks
          *    flagged (muse.ask's answer, the button, alarms) and keep-awake. */
         away_check();
+        if (atomic_exchange(&s_icons_wanted, false)) load_icons();
         int64_t dev_next = luapp_dev_tick();
         luapp_shot_expire();
         luapp_perf_tick();
@@ -2513,9 +2537,9 @@ cJSON *luapp_command(const char *command, const cJSON *params, const char *reque
         bool run = bool_param(params, "run", true);
         /* Pieces go to storage here, on Muse's command task, not through the Lua
          * task: uploading a new version never waits for a running app. */
-        luapp_meta_t existing, all[LUAPP_MAX_APPS];
-        if (!append && !luapp_store_find(id, &existing) && luapp_store_list(all, LUAPP_MAX_APPS) >= LUAPP_MAX_APPS) {
-            return apps_error("full", "9 apps installed: remove one first (luapp.admin action remove)");
+        luapp_meta_t existing;
+        if (!append && !luapp_store_find(id, &existing) && luapp_store_count() >= LUAPP_MAX_APPS) {
+            return apps_error("full", "64 apps installed: remove one first (luapp.admin action remove)");
         }
         size_t total = 0;
         if (!luapp_store_tmp_write(id, code->valuestring, n, append, &total)) {
@@ -2607,7 +2631,8 @@ cJSON *luapp_command(const char *command, const cJSON *params, const char *reque
             return apps_ok(p);
         }
         if (!strcmp(action, "list")) {
-            luapp_meta_t apps[LUAPP_MAX_APPS];
+            luapp_meta_t *apps = heap_caps_malloc(sizeof(luapp_meta_t) * LUAPP_MAX_APPS, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            if (!apps) return apps_error("out_of_memory", "no memory for the list");
             int n = luapp_store_list(apps, LUAPP_MAX_APPS);
             cJSON *p = cJSON_CreateObject();
             cJSON *arr = cJSON_AddArrayToObject(p, "apps");
@@ -2621,6 +2646,7 @@ cJSON *luapp_command(const char *command, const cJSON *params, const char *reque
                 cJSON_AddNumberToObject(a, "bytes", apps[i].size);
                 cJSON_AddItemToArray(arr, a);
             }
+            free(apps);
             char running[LUAPP_ID_MAX + 1];
             taskENTER_CRITICAL(&s_log_mux);
             strlcpy(running, s_running, sizeof(running));
@@ -2629,6 +2655,11 @@ cJSON *luapp_command(const char *command, const cJSON *params, const char *reque
             else cJSON_AddNullToObject(p, "running");
             cJSON_AddBoolToObject(p, "storage", luapp_store_mounted());
             cJSON_AddNumberToObject(p, "max_apps", LUAPP_MAX_APPS);
+            uint32_t total_kb = 0, free_kb = 0;
+            if (luapp_store_space(&total_kb, &free_kb)) {
+                cJSON_AddNumberToObject(p, "storage_kb", total_kb);
+                cJSON_AddNumberToObject(p, "storage_free_kb", free_kb);
+            }
             last_stop_t ls;
             taskENTER_CRITICAL(&s_log_mux);
             ls = s_last_stop;

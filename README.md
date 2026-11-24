@@ -57,6 +57,7 @@ the source and a README:
 | [**Lab**](apps/lab/) | A test bench for the new firmware APIs: a roller page picker, device.info with a live mic bar, motion.read values, a muse.ask button and a 1-minute alarm test. |
 | [**Spotify**](apps/spotify/) | A Spotify remote in Spotify's own colours: the playing track with its album art, a progress bar with the current time and duration, Previous / Play-Pause / Next controls, and a Release Radar discovery screen. The controls are optimistic and the transport prefers a small bridge service when one is configured. |
 | [**Invaders**](apps/invaders/) | The classic fixed shooter: a marching formation of invaders that drops as it crosses, a cannon steered by dragging, tap or hold to fire, three lives and faster waves, with a stored best score. |
+| [**Asteroids**](apps/asteroids/) | The classic vector shooter in pure contours: an outline ship steered by holding a finger down, and four sizes of tumbling outline asteroids that split into two of the next size down when shot. |
 
 | Timer | Paddle Ball | Moon Phase | Horoscope |
 |---|---|---|---|

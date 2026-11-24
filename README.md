@@ -47,6 +47,11 @@ free for progress rings and other edge displays.
   screen. The gadget asks Muse, and Muse drives the Spotify
   connector.
 
+- [Invaders](apps/invaders/) — the classic fixed shooter:
+  a marching formation of invaders that drops as it crosses,
+  a cannon you steer by dragging, tap or hold to fire, three
+  lives and faster waves, with a stored best score.
+
 ## How an app runs
 
 Each app is a Lua program that runs on the device itself, in the

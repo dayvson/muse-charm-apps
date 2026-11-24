@@ -6,14 +6,19 @@
 -- a time, tap play to hear it. Swipe or press the bottom
 -- button to switch screens.
 --
--- The gadget cannot talk to Spotify itself (that needs
--- the account login), so the app asks Muse: muse.ask
--- carries "SPOTIFY ..." commands and Muse answers with a
--- small JSON state, which is also what luapp.send pushes.
+-- The fast path is a small bridge service on Muse's
+-- machine (it holds the Spotify connection and answers
+-- in about a second); BRIDGE and BKEY are injected into
+-- the installed copy at install time and stay empty in
+-- the repo. With no bridge configured, or when it is
+-- unreachable, the app falls back to asking Muse.
 -- Album art comes from Spotify's public oEmbed page for
 -- the track: its thumbnail URL carries a size code, and
 -- swapping 00001e02 for 00004851 gives the 64 px version
 -- (about 3 KB, inside the http body cap).
+
+local BRIDGE = ""   -- bridge base URL, injected at install
+local BKEY = ""     -- bridge key, injected at install
 
 local touch_fn = nil
 local c = ui.canvas{
@@ -164,11 +169,40 @@ local function route_reply(ans)
     if screen == 2 then draw_disc() end
   end
 end
+local function bridge_path(cmd)
+  if cmd == "SPOTIFY STATE" then return "/state" end
+  if cmd == "SPOTIFY PLAY" then return "/cmd?do=play" end
+  if cmd == "SPOTIFY PAUSE" then return "/cmd?do=pause" end
+  if cmd == "SPOTIFY NEXT" then return "/cmd?do=next" end
+  if cmd == "SPOTIFY PREV" then return "/cmd?do=prev" end
+  if cmd == "SPOTIFY DISCOVER" then return "/disc" end
+  local uri = cmd:match("^SPOTIFY PLAYURI (.+)$")
+  if uri then
+    return "/cmd?do=playuri&uri=" .. uri:gsub(":", "%%3A")
+  end
+  return nil
+end
 local function ask(cmd)
   last_ask_t = time.now()
-  muse.ask(cmd, function(ans, err)
-    if ans then route_reply(ans) end
-  end)
+  local path = BRIDGE ~= "" and bridge_path(cmd) or nil
+  print("req " .. cmd .. " via " .. (path and "bridge" or "ask"))
+  if path then
+    local sep = path:find("?") and "&k=" or "?k="
+    http.get(BRIDGE .. path .. sep .. BKEY, function(ok, body)
+      if ok and body then
+        route_reply(body)
+      else
+        -- bridge unreachable: fall back to asking Muse
+        muse.ask(cmd, function(ans, err)
+          if ans then route_reply(ans) end
+        end)
+      end
+    end)
+  else
+    muse.ask(cmd, function(ans, err)
+      if ans then route_reply(ans) end
+    end)
+  end
 end
 
 -- ---------- shared pieces ----------
@@ -283,18 +317,45 @@ local function show(n)
 end
 
 -- ---------- input ----------
+-- start a discovery item on the player screen right away;
+-- the state reply confirms it a moment later
+local function play_item(it)
+  st.title, st.artist, st.tid = it.name, it.artist, it.tid
+  st.prog, st.dur, st.playing = 0, 0, true
+  st.note = nil
+  asked_track_end = false
+  if disc_art then art_img = disc_art end
+  ask("SPOTIFY PLAYURI spotify:track:" .. it.tid)
+  show(1)
+end
 touch_fn = function(kind, x, y)
   if kind ~= "up" then return end
   sound.effect("click", {volume = 20})
   if screen == 1 then
     if y > 372 then
-      if x < 176 then ask("SPOTIFY PREV")
-      elseif x > 290 then ask("SPOTIFY NEXT")
-      elseif st.playing then ask("SPOTIFY PAUSE")
-      else ask("SPOTIFY PLAY") end
+      -- controls answer on screen first (optimistic) and
+      -- the reply corrects them if Spotify disagrees
+      if x < 176 then
+        st.prog = 0 asked_track_end = false draw_all()
+        ask("SPOTIFY PREV")
+      elseif x > 290 then
+        st.prog = 0 asked_track_end = false draw_all()
+        ask("SPOTIFY NEXT")
+      elseif st.playing then
+        st.playing = false draw_all()
+        ask("SPOTIFY PAUSE")
+      else
+        st.playing = true draw_all()
+        ask("SPOTIFY PLAY")
+      end
     elseif y > 70 and y < 290 then
-      if st.playing then ask("SPOTIFY PAUSE")
-      else ask("SPOTIFY PLAY") end
+      if st.playing then
+        st.playing = false draw_all()
+        ask("SPOTIFY PAUSE")
+      else
+        st.playing = true draw_all()
+        ask("SPOTIFY PLAY")
+      end
     end
   else
     local it = disc[disc_i]
@@ -304,12 +365,10 @@ touch_fn = function(kind, x, y)
       elseif x > 290 then
         if disc_i < #disc then disc_i = disc_i + 1 draw_disc() end
       elseif it then
-        ask("SPOTIFY PLAYURI spotify:track:" .. it.tid)
-        show(1)
+        play_item(it)
       end
     elseif it and y > 70 and y < 290 then
-      ask("SPOTIFY PLAYURI spotify:track:" .. it.tid)
-      show(1)
+      play_item(it)
     end
   end
 end
@@ -338,6 +397,12 @@ ui.every(1000, function()
     asked_track_end = true
     ask("SPOTIFY STATE")
   end
+end)
+
+-- with the bridge, fresh state is cheap: poll for it,
+-- so changes made on the phone show up here too
+ui.every(10000, function()
+  if BRIDGE ~= "" and screen == 1 then ask("SPOTIFY STATE") end
 end)
 
 -- launcher icon: the Spotify mark on black

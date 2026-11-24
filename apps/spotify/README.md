@@ -18,18 +18,32 @@ time with its art, browsed with the side buttons and
 played with the green one. Swipe or press the bottom
 button to switch screens.
 
-The gadget cannot talk to Spotify itself (that needs the
-account login), so the app asks Muse over muse.ask:
-"SPOTIFY STATE", "SPOTIFY PLAY", "SPOTIFY PAUSE",
-"SPOTIFY NEXT", "SPOTIFY PREV", "SPOTIFY DISCOVER" and
-"SPOTIFY PLAYURI spotify:track:<id>". Muse runs the
-matching command through the Spotify connector and
-answers with a small JSON state, which is also what
-luapp.send pushes. The controls only work while Spotify
-has a live Connect device (a phone or computer with
-Spotify open); when none is live, Muse's answer carries
-a note and the app shows "Open Spotify on your phone"
-over the art instead of failing silently.
+The gadget cannot talk to Spotify itself (that needs
+the account login), so the app goes through Muse. The
+fast path is a small bridge service on Muse's machine
+that holds the Spotify connection and answers the same
+commands over plain http in about a second; its address
+and key are injected into the installed copy at install
+time (the BRIDGE and BKEY locals stay empty in the
+repo), and with the bridge live the player also polls
+it every 10 seconds, so changes made on the phone show
+up on the gadget. With no bridge configured, or when it
+is unreachable, the app falls back to asking Muse over
+muse.ask: "SPOTIFY STATE", "SPOTIFY PLAY",
+"SPOTIFY PAUSE", "SPOTIFY NEXT", "SPOTIFY PREV",
+"SPOTIFY DISCOVER" and "SPOTIFY PLAYURI
+spotify:track:<id>". Either way the answer is a small
+JSON state, which is also what luapp.send pushes.
+
+The controls are optimistic: tapping play, pause, next
+or previous updates the screen immediately, and the
+reply a moment later confirms it or corrects it (a
+discovery pick also jumps to the player screen at
+once). The controls only work while Spotify has a live
+Connect device (a phone or computer with Spotify open);
+when none is live, the answer carries a note and the
+app shows "Open Spotify on your phone" over the art
+instead of failing silently.
 
 Album art comes from Spotify's public oEmbed page for
 the track. Its thumbnail URL carries a size code, and

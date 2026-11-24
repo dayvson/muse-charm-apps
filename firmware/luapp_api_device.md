@@ -84,7 +84,9 @@ one host (polling an API every few seconds) skip the TLS handshake.
 
 ## Seeing the app (for Muse)
 
-`luapp.admin` action `screenshot` returns the screen as a PNG in base64
+`luapp.admin` action `order` {ids = [...]} sets the launcher's order (six
+apps to a page; apps left out follow, as installed). Action `screenshot`
+returns the screen as a PNG in base64
 pages: call with offset 0 (full=true for 466 px instead of 233), then with
 offset = next until next is null, and join the png_base64 pieces. Action
 `widgets` lists the running app's widgets (kind, position, size, text,

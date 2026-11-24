@@ -264,12 +264,13 @@ void muse_apps_register_commands(cJSON *commands)
     add(commands, "luapp.run", "Open an installed Lua app; returns its start-up error, if any.", req, NULL);
     req = cJSON_CreateObject();
     opt = cJSON_CreateObject();
-    param(req, "action", "api, api_ui, api_gfx, api_sound, api_device (the Lua API), list, logs, stop, remove, "
+    param(req, "action", "api, api_ui, api_gfx, api_sound, api_device (the Lua API), list, order, logs, stop, remove, "
                          "source, screenshot (PNG pages), widgets or perf (fps, ms per frame).");
     param(opt, "id", "For remove and source.");
     typed(opt, "offset", "integer", "For source and screenshot: where to read from.");
     typed(opt, "force", "boolean", "For stop: reboot if it won't stop in 3 s.");
     typed(opt, "full", "boolean", "For screenshot: 466 px (default 233).");
+    typed(opt, "ids", "array", "For order: app ids, launcher order.");
     add(commands, "luapp.admin", "Manage Lua apps.", req, opt);
     req = cJSON_CreateObject();
     opt = cJSON_CreateObject();

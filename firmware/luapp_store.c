@@ -29,6 +29,10 @@ static const char *TAG = "luapp_store";
 #define OLD_LABEL "luapps_v1"
 #define OLD_ROOT "/luold"
 #define COPIED ROOT "/_v1copied"
+/* The launcher's order: app ids, one per line (luapp.admin action order).
+ * Apps not in it follow, in the order the folder lists them. */
+#define ORDER ROOT "/_order"
+#define ORDER_MAX (LUAPP_MAX_APPS * (LUAPP_ID_MAX + 1) + 1)
 
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 EXT_RAM_BSS_ATTR static luapp_meta_t s_index[LUAPP_MAX_APPS];   /* under s_mux */
@@ -133,6 +137,40 @@ static bool read_meta(const char *id, luapp_meta_t *m)
     return true;
 }
 
+/* Sorts the apps by the order file (a stable insertion sort: 64 at most). */
+static void apply_order(luapp_meta_t *apps, int n)
+{
+    size_t len = 0;
+    char *order = n > 1 ? read_file(ORDER, ORDER_MAX, &len) : NULL;
+    if (!order) return;
+    EXT_RAM_BSS_ATTR static int rank[LUAPP_MAX_APPS];   /* under the file lock, like rescan */
+    for (int i = 0; i < n; i++) {
+        rank[i] = LUAPP_MAX_APPS + i;   /* unlisted: after the listed ones, as found */
+        int pos = 0;
+        for (char *line = order; *line; pos++) {
+            char *end = strchr(line, '\n');
+            size_t l = end ? (size_t)(end - line) : strlen(line);
+            if (l == strlen(apps[i].id) && !strncmp(line, apps[i].id, l)) {
+                rank[i] = pos;
+                break;
+            }
+            if (!end) break;
+            line = end + 1;
+        }
+    }
+    free(order);
+    for (int i = 1; i < n; i++) {
+        luapp_meta_t m = apps[i];
+        int r = rank[i], j = i - 1;
+        for (; j >= 0 && rank[j] > r; j--) {
+            apps[j + 1] = apps[j];
+            rank[j + 1] = rank[j];
+        }
+        apps[j + 1] = m;
+        rank[j + 1] = r;
+    }
+}
+
 static void rescan(void)
 {
     EXT_RAM_BSS_ATTR static luapp_meta_t found[LUAPP_MAX_APPS];   /* under the file lock */
@@ -151,6 +189,7 @@ static void rescan(void)
         }
         closedir(d);
     }
+    apply_order(found, n);
     taskENTER_CRITICAL(&s_mux);
     memcpy(s_index, found, sizeof(found[0]) * n);
     s_count = n;
@@ -620,3 +659,19 @@ int luapp_store_file_list(const char *id, luapp_file_t *out, int cap, size_t *to
 }
 char *luapp_store_sys_read(const char *name, size_t max, size_t *len) { LOCKED(char *, fs_sys_read(name, max, len)); }
 bool luapp_store_sys_write(const char *name, const char *data, size_t len) { LOCKED(bool, fs_sys_write(name, data, len)); }
+
+static bool fs_set_order(const char *const *ids, int n)
+{
+    char *text = heap_caps_malloc(ORDER_MAX, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!text) return false;
+    size_t len = 0;
+    for (int i = 0; i < n && i < LUAPP_MAX_APPS; i++) {
+        if (!luapp_id_valid(ids[i])) continue;
+        len += (size_t)snprintf(text + len, ORDER_MAX - len, "%s\n", ids[i]);
+    }
+    bool ok = fs_sys_write("_order", text, len);
+    free(text);
+    if (ok) rescan();
+    return ok;
+}
+bool luapp_store_set_order(const char *const *ids, int n) { LOCKED(bool, fs_set_order(ids, n)); }

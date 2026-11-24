@@ -40,6 +40,9 @@ int luapp_store_list(luapp_meta_t *out, int cap);
 int luapp_store_count(void);
 /* The app storage's size and free space, in KB. */
 bool luapp_store_space(uint32_t *total_kb, uint32_t *free_kb);
+/* The launcher's order: these app ids first, in this order; the others after,
+ * as installed. Saved, and applied at once. */
+bool luapp_store_set_order(const char *const *ids, int n);
 bool luapp_store_find(const char *id, luapp_meta_t *out);
 uint32_t luapp_store_version(void);
 

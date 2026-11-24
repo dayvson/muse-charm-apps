@@ -2481,7 +2481,7 @@ void luapp_set_reply(muse_apps_reply_fn fn) { s_reply = fn; }
 
 extern const char luapp_api_md[], luapp_api_gfx_md[], luapp_api_sound_md[], luapp_api_ui_md[], luapp_api_device_md[];
 
-#define ACTIONS "api, api_ui, api_gfx, api_sound, api_device, list, logs, stop, remove, source, screenshot, widgets or perf"
+#define ACTIONS "api, api_ui, api_gfx, api_sound, api_device, list, order, logs, stop, remove, source, screenshot, widgets or perf"
 
 static const char *str_param(const cJSON *p, const char *k)
 {
@@ -2628,6 +2628,29 @@ cJSON *luapp_command(const char *command, const cJSON *params, const char *reque
         if (doc) {
             cJSON *p = cJSON_CreateObject();
             cJSON_AddStringToObject(p, "api", doc);
+            return apps_ok(p);
+        }
+        if (!strcmp(action, "order")) {
+            /* The launcher's order: ids = app ids, first to last (six to a page). */
+            const cJSON *ids = params ? cJSON_GetObjectItemCaseSensitive(params, "ids") : NULL;
+            int n = cJSON_IsArray(ids) ? cJSON_GetArraySize(ids) : -1;
+            if (n < 1 || n > LUAPP_MAX_APPS) return apps_error("invalid_params", "ids: the apps' ids in launcher order");
+            const char *list[LUAPP_MAX_APPS];
+            int k = 0;
+            for (const cJSON *it = ids->child; it; it = it->next) {
+                if (!cJSON_IsString(it) || !luapp_id_valid(it->valuestring)) {
+                    return apps_error("invalid_params", "ids: app ids (1 to 12 of a-z, 0-9, _)");
+                }
+                list[k++] = it->valuestring;
+            }
+            if (!luapp_store_set_order(list, k)) return apps_error("storage_error", "couldn't save the order");
+            luapp_meta_t *apps = heap_caps_malloc(sizeof(luapp_meta_t) * LUAPP_MAX_APPS, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            if (!apps) return apps_ok(cJSON_CreateObject());
+            int count = luapp_store_list(apps, LUAPP_MAX_APPS);
+            cJSON *p = cJSON_CreateObject();
+            cJSON *arr = cJSON_AddArrayToObject(p, "order");
+            for (int i = 0; i < count; i++) cJSON_AddItemToArray(arr, cJSON_CreateString(apps[i].id));
+            free(apps);
             return apps_ok(p);
         }
         if (!strcmp(action, "list")) {

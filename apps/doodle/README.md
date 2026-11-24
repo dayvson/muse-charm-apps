@@ -5,8 +5,11 @@ with Vela the puppy in the doodler's place and her
 propeller hat spinning at every bounce. She bounces
 on platforms forever; the only way is up.
 
-Touch and drag to steer her left and right; she wraps
-around the edges of the screen. Green platforms are
+Touch and drag to steer her left and right. She
+glides after your finger with a little weight to
+her, easing in and out rather than snapping to it,
+and the walls stop her: she never wraps around to
+the other side of the screen. Green platforms are
 steady, blue ones slide sideways, brown ones break
 under her feet and drop away. Some green platforms
 carry a spring: land on it for a real launch. The

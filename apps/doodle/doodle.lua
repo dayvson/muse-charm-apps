@@ -2,11 +2,14 @@
 -- round screen, with Vela the puppy in the doodler's
 -- place and her propeller hat spinning at every
 -- bounce. She bounces on platforms forever; drag to
--- steer her left and right (she wraps around the
--- edges), thread the green and blue platforms, mind
--- the brown ones, which break, and catch a spring
--- for a real launch. The score is the height climbed,
--- in metres; the best is kept in the store.
+-- steer her left and right. She glides after your
+-- finger with a little weight to her, easing in and
+-- out instead of snapping, and the walls stop her:
+-- she never wraps around to the other side. Thread
+-- the green and blue platforms, mind the brown ones,
+-- which break, and catch a spring for a real launch.
+-- The score is the height climbed, in metres; the
+-- best is kept in the store.
 --
 -- Controls: touch and drag to steer. Tap to start,
 -- tap to play again.
@@ -40,6 +43,7 @@ local best = store.get("best") or 0   -- metres
 
 local state = "ready"   -- ready | play | over
 local px, py, vy = 200, 282, 0
+local hvx = 0   -- her horizontal velocity (steering)
 local tx = 200
 local plats = {}
 local score_px = 0
@@ -72,13 +76,6 @@ local function draw_vela(cv, x, y)
   cv:circle(x, y + 3.5, 3.2, INK, { fill = true })
   cv:circle(x - 9, y + 17, 4.5, EAR, { fill = true })
   cv:circle(x + 9, y + 17, 4.5, EAR, { fill = true })
-end
-
-local function vela_positions(x)
-  local t = { x }
-  if x < 44 then t[#t + 1] = x + 400 end
-  if x > 356 then t[#t + 1] = x - 400 end
-  return t
 end
 
 -- ---------- platforms ----------
@@ -142,6 +139,7 @@ local function reset_world()
     gen_platform(y)
   end
   px, py, vy = 200, 282, 0
+  hvx = 0
   tx = 200
   score_px = 0
   drawn_m = -1
@@ -164,9 +162,7 @@ local function draw_world_full()
     draw_plat(c, p)
     p.dx, p.dy = p.x, p.y
   end
-  for _, nx in ipairs(vela_positions(px)) do
-    draw_vela(c, nx, py)
-  end
+  draw_vela(c, px, py)
   obx, oby = px, py
   score_dirty = true
   draw_score()
@@ -223,16 +219,25 @@ end
 
 -- ---------- update ----------
 local function update_play(dt)
-  -- steering: shortest way around the wrap
+  -- steering: she has weight. Her horizontal speed
+  -- leans toward a target speed that grows with the
+  -- distance to your finger and tops out well under
+  -- the old snap, so she eases out, glides, and
+  -- settles instead of teleporting after the drag.
+  -- The walls stop her; there is no wrap-around.
   local dx = tx - px
-  if dx > 200 then dx = dx - 400
-  elseif dx < -200 then dx = dx + 400 end
-  local step = 900 * dt
-  if dx > step then px = px + step
-  elseif dx < -step then px = px - step
-  else px = px + dx end
-  if px < -20 then px = px + 440
-  elseif px > 420 then px = px - 440 end
+  local want = dx * 6
+  if want > 330 then want = 330
+  elseif want < -330 then want = -330 end
+  if dx > -2 and dx < 2 then want = 0 end
+  local dv = want - hvx
+  local acc = 1700 * dt
+  if dv > acc then hvx = hvx + acc
+  elseif dv < -acc then hvx = hvx - acc
+  else hvx = want end
+  px = px + hvx * dt
+  if px < 30 then px = 30 hvx = 0
+  elseif px > 370 then px = 370 hvx = 0 end
   -- vertical motion
   local prev_feet = py + 20
   vy = math.min(vy + GRAV * dt, 1100)
@@ -325,14 +330,10 @@ local function draw_frame()
     end
   end
   if obx then
-    for _, ox in ipairs(vela_positions(obx)) do
-      c:rect(ox - 26, oby - 28, 52, 52, BG, { fill = true })
-    end
+    c:rect(obx - 26, oby - 28, 52, 52, BG, { fill = true })
     if oby - 28 < 56 then score_dirty = true end
   end
-  for _, nx in ipairs(vela_positions(px)) do
-    draw_vela(c, nx, py)
-  end
+  draw_vela(c, px, py)
   obx, oby = px, py
   if py - 28 < 56 then score_dirty = true end
   if score_dirty or drawn_m ~= metres() then draw_score() end
@@ -349,7 +350,11 @@ end
 
 -- ---------- input ----------
 local function handle_touch(kind, x, y)
-  if kind == "down" or kind == "move" then tx = x end
+  if kind == "down" or kind == "move" then
+    tx = math.max(30, math.min(370, x))
+  elseif kind == "up" then
+    tx = px   -- finger lifted: she eases to a stop here
+  end
   if kind ~= "down" then return end
   if state == "ready" then
     start_game()

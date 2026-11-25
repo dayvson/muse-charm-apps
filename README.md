@@ -69,7 +69,8 @@ the source and a README:
 | [**Invaders**](apps/invaders/) | The classic fixed shooter: a marching formation of invaders that drops as it crosses, a cannon steered by dragging, tap or hold to fire, three lives and faster waves, with a stored best score. |
 | [**Asteroids**](apps/asteroids/) | The classic vector shooter in pure contours: an outline ship steered by holding a finger down, and four sizes of tumbling outline asteroids that split into two of the next size down when shot. |
 | [**Flappy Vela**](apps/flappy/) | The one-button arcade classic with Vela the puppy in the bird's place, propeller hat spinning as she climbs: tap to flap, thread the pipes, one point per pipe, with a stored best score. |
-| [**Vela Jump**](apps/doodle/) | A doodle-jump climber: Vela bounces up an endless stack of platforms, drag to steer and wrap around the edges, green platforms steady, blue ones sliding, brown ones breaking, springs for a real launch, and the height in metres as the score. |
+| [**Vela Jump**](apps/doodle/) | A doodle-jump climber: Vela bounces up an endless stack of platforms, drag to steer with a smooth weighted glide and no wrap-around, green platforms steady, blue ones sliding, brown ones breaking, springs for a real launch, and the height in metres as the score. |
+| [**Shake Ball**](apps/shakeball/) | A magic 8-ball: ask a question, shake the gadget (the motion sensor is listening) or tap the ball, and the answer window fills with the blue triangle and one of the twenty classic verdicts. |
 
 | Timer | Paddle Ball | Moon Phase | Horoscope |
 |---|---|---|---|

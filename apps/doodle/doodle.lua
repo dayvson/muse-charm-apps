@@ -106,6 +106,22 @@ local function cover_plat(cv, p, ox, oy)
   cv:rect(ox - 2, oy - 10, PLW + 4, PLH + 13, BG, { fill = true })
 end
 
+-- A cover paints flat background, so on its own it
+-- leaves a visible square wherever it wipes over a
+-- platform behind the mover. Repaint any platform a
+-- rect touched, in the same frame, and the box is
+-- never seen: the cover becomes effectively
+-- transparent, showing what was behind it.
+local function repair_under(x0, y0, x1, y1)
+  for _, p in ipairs(plats) do
+    if not p.dead and p.x < x1 and p.x + PLW > x0
+       and p.y - 8 < y1 and p.y + PLH > y0 then
+      draw_plat(c, p)
+      p.dx, p.dy = p.x, p.y
+    end
+  end
+end
+
 local function gen_platform(y)
   local kind = "norm"
   local r = math.random()
@@ -331,6 +347,7 @@ local function draw_frame()
   end
   if obx then
     c:rect(obx - 26, oby - 28, 52, 52, BG, { fill = true })
+    repair_under(obx - 26, oby - 28, obx + 26, oby + 24)
     if oby - 28 < 56 then score_dirty = true end
   end
   draw_vela(c, px, py)
@@ -343,6 +360,7 @@ local function draw_ready_frame()
   local nb = 282 + math.sin(t_now * 2.2) * 5
   if obx then
     c:rect(obx - 26, oby - 28, 52, 52, BG, { fill = true })
+    repair_under(obx - 26, oby - 28, obx + 26, oby + 24)
   end
   draw_vela(c, 200, nb)
   obx, oby = 200, nb

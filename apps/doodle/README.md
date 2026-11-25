@@ -20,5 +20,7 @@ best height is kept in the app store.
 One 400x400 canvas at zoom 1 in partial mode. The
 scene is painted once, then each frame covers the
 platforms' and Vela's old spots and draws them at the
-new ones; the height at the top repaints only when it
-changes or something passes behind it.
+new ones; whatever a cover wipes behind the mover is
+repainted in the same frame, so no erase box ever
+shows around her. The height at the top repaints
+only when it changes or something passes behind it.
